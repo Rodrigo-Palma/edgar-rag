@@ -1,0 +1,67 @@
+import httpx
+import numpy as np
+import pytest
+
+from edgar_rag import embeddings
+from edgar_rag.embeddings import ModelError, OllamaEmbedder, OllamaGenerator
+
+
+def _reply(monkeypatch, payload: dict) -> list[dict]:
+    """Capture what the client posts, and answer with ``payload``."""
+    sent: list[dict] = []
+
+    def fake_post(url, json, timeout):
+        sent.append({"url": url, "json": json})
+        return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(embeddings.httpx, "post", fake_post)
+    return sent
+
+
+def test_embedder_returns_one_vector_per_text(monkeypatch):
+    sent = _reply(monkeypatch, {"embeddings": [[1.0, 0.0], [0.0, 1.0]]})
+
+    vectors = OllamaEmbedder("http://localhost:11434/", "nomic").embed(("a", "b"))
+
+    assert vectors.shape == (2, 2)
+    assert vectors.dtype == np.float32
+    assert sent[0]["url"] == "http://localhost:11434/api/embed"
+    assert sent[0]["json"]["input"] == ["a", "b"]
+
+
+def test_embedder_refuses_a_short_reply_instead_of_misaligning_chunks(monkeypatch):
+    _reply(monkeypatch, {"embeddings": [[1.0, 0.0]]})
+
+    with pytest.raises(ModelError, match="1 of 2 vectors"):
+        OllamaEmbedder("http://localhost:11434", "nomic").embed(("a", "b"))
+
+
+def test_embedding_nothing_is_a_caller_error(monkeypatch):
+    with pytest.raises(ValueError):
+        OllamaEmbedder("http://localhost:11434", "nomic").embed(())
+
+
+def test_generator_returns_the_trimmed_answer(monkeypatch):
+    sent = _reply(monkeypatch, {"response": "  an answer [1]  "})
+
+    answer = OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")
+
+    assert answer == "an answer [1]"
+    assert sent[0]["json"]["stream"] is False
+
+
+def test_an_empty_generation_is_an_error_not_an_empty_answer(monkeypatch):
+    _reply(monkeypatch, {"response": "   "})
+
+    with pytest.raises(ModelError, match="empty answer"):
+        OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")
+
+
+def test_a_server_that_is_not_running_is_reported_with_its_url(monkeypatch):
+    def fake_post(url, json, timeout):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(embeddings.httpx, "post", fake_post)
+
+    with pytest.raises(ModelError, match="api/embed did not answer"):
+        OllamaEmbedder("http://localhost:11434", "nomic").embed(("a",))
