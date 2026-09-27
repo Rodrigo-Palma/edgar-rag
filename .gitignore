@@ -6,5 +6,6 @@ __pycache__/
 .coverage
 htmlcov/
 .env
-data/filings/
-data/index/
+# Everything under data/ is a generated artefact: downloaded filings and
+# built indexes, including any suffixed variant used to compare two runs.
+data/
