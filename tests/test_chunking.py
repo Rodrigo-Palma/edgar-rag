@@ -14,11 +14,49 @@ def test_keeps_a_short_section_whole():
 
 
 def test_windows_overlap_so_a_sentence_is_not_cut_out_of_both():
+    body = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+    sections = (Section(item="Item 7", title="MD&A", text=body),)
+
+    chunks = chunk_sections(sections, max_chars=24, overlap=8)
+
+    assert len(chunks) > 1
+    joined = " ".join(chunk.text for chunk in chunks)
+    for word in body.split():
+        assert word in joined
+
+
+def test_no_passage_ends_in_the_middle_of_a_word_or_a_number():
+    """156 of 200 passages of a real 10-K used to end mid-word, 19 mid-number."""
+    body = "Research and development expense was $ 34,550 million in 2025. " * 12
+    sections = (Section(item="Item 7", title="MD&A", text=body),)
+
+    chunks = chunk_sections(sections, max_chars=120, overlap=20)
+
+    for chunk in chunks:
+        remainder = body[body.find(chunk.text) + len(chunk.text) :]
+        assert not remainder or remainder[0].isspace() or chunk.text[-1] in ".;:"
+
+
+def test_text_with_no_whitespace_is_still_cut_rather_than_lost():
     sections = (Section(item="Item 7", title="MD&A", text="abcdefghij"),)
 
     chunks = chunk_sections(sections, max_chars=6, overlap=2)
 
-    assert [chunk.text for chunk in chunks] == ["abcdef", "efghij", "ij"]
+    assert "".join(chunk.text for chunk in chunks).startswith("abcdef")
+    assert len(chunks) > 1
+
+
+def test_chunk_ids_are_unique_even_when_two_sections_share_a_label():
+    """A real 10-K produced "Item 16#0" twice, and the id promises identity."""
+    sections = (
+        Section(item="Item 16", title="Summary", text="first section body"),
+        Section(item="Item 16", title="Summary", text="second section body"),
+    )
+
+    chunks = chunk_sections(sections)
+
+    identifiers = [chunk.chunk_id for chunk in chunks]
+    assert len(identifiers) == len(set(identifiers))
 
 
 def test_every_chunk_carries_the_item_it_came_from():

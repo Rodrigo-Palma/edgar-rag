@@ -26,12 +26,15 @@ class GateDecision:
     """Whether to answer, how sure the gate is, and why.
 
     ``reason`` is written for a person reading a log, because an abstention with
-    no reason is indistinguishable from a bug.
+    no reason is indistinguishable from a bug. ``degraded`` is a field rather
+    than prose in the reason so a caller can act on it: a gate that quietly
+    swapped itself for a weaker one is the failure most worth surfacing.
     """
 
     admitted: bool
     confidence: float
     reason: str
+    degraded: bool = False
 
 
 class RelevanceGate(Protocol):
@@ -95,13 +98,28 @@ class BrierGate:
             return GateDecision(
                 admitted=fell_back.admitted,
                 confidence=fell_back.confidence,
-                reason=f"{fell_back.reason} (fell back: {error})",
+                reason=f"{fell_back.reason} (degraded: {error})",
+                degraded=True,
             )
 
     def _judge(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision:
-        best_confidence, best_position = 0.0, 0
+        """Ask about each passage, stopping at the first that clears the bar.
+
+        Evidence already gathered is kept if a later call fails, so one bad
+        request does not throw away a confident yes from an earlier passage.
+
+        Raises:
+            GateError: when no passage could be judged at all.
+        """
+        best_confidence, best_position = 0.0, 1
+        failure: GateError | None = None
+
         for position, scored in enumerate(passages, start=1):
-            confidence = self._confidence(question, scored.chunk.text)
+            try:
+                confidence = self._confidence(question, scored.chunk.text)
+            except GateError as error:
+                failure = error
+                continue
             if confidence > best_confidence:
                 best_confidence, best_position = confidence, position
             if confidence >= self.min_confidence:
@@ -113,6 +131,9 @@ class BrierGate:
                     ),
                 )
 
+        if failure is not None and not best_confidence:
+            raise failure
+
         return GateDecision(
             admitted=False,
             confidence=round(best_confidence, 4),
@@ -121,6 +142,14 @@ class BrierGate:
                 f"passage {best_position} at {best_confidence:.3f}"
             ),
         )
+
+    def confidence_for(self, question: str, passage: str) -> float:
+        """The raw probability for one passage, for sweeping the threshold.
+
+        Raises:
+            GateError: when the service is unreachable.
+        """
+        return self._confidence(question, passage)
 
     def _confidence(self, question: str, passage: str) -> float:
         """The probability the model puts on "yes"."""

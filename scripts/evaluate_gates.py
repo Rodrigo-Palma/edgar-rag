@@ -100,6 +100,26 @@ def run(gate: RelevanceGate, name: str, index: FilingIndex, embedder) -> Score:
     )
 
 
+def sweep(name: str, scores: dict[str, float], grid: tuple[float, ...]) -> None:
+    """Both gates over their whole threshold range, compared at equal recall.
+
+    Comparing one gate at 0.55 against another at 0.7 compares two arbitrary
+    points, not two detectors: whichever is more conservative looks better at
+    rejecting and worse at answering. The honest question is what each one
+    rejects when both answer the same share of the answerable questions.
+    """
+    print(f"\n{name}, threshold sweep:")
+    print("    threshold   answers answerable   wrongly answers the rest")
+    for threshold in grid:
+        admitted_yes = sum(
+            1 for case in CASES if case.answerable and scores[case.question] >= threshold
+        )
+        admitted_no = sum(
+            1 for case in CASES if not case.answerable and scores[case.question] >= threshold
+        )
+        print(f"      {threshold:.2f}        {admitted_yes}/5                  {admitted_no}/5")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--brier-url", default="http://localhost:8100")
@@ -136,7 +156,29 @@ def main() -> int:
             f"{score.admitted_unanswerable}/{score.total_unanswerable} "
             f"({score.false_admissions:.0%})"
         )
+    _sweeps(index, embedder, arguments)
     return 0
+
+
+def _sweeps(index: FilingIndex, embedder, arguments) -> None:
+    """Collect the raw score each gate assigns, then sweep both."""
+    cosine_scores, brier_scores = {}, {}
+    brier = BrierGate(arguments.brier_url, min_confidence=0.0)
+
+    for case in CASES:
+        passages = index.search(embedder.embed((case.question,)), top_k=TOP_K)
+        cosine_scores[case.question] = passages[0].score if passages else 0.0
+        try:
+            best = max(
+                brier.confidence_for(case.question, scored.chunk.text) for scored in passages
+            )
+        except GateError as error:
+            print(f"\nbrier unavailable, skipping the sweep: {error}")
+            return
+        brier_scores[case.question] = best
+
+    sweep("cosine", cosine_scores, (0.45, 0.50, 0.55, 0.60, 0.65, 0.70))
+    sweep("brier", brier_scores, (0.2, 0.4, 0.5, 0.6, 0.7, 0.8))
 
 
 if __name__ == "__main__":

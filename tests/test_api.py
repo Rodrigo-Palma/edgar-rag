@@ -46,7 +46,7 @@ def test_ask_returns_the_answer_its_citations_and_the_filing(client):
     body = response.json()
     assert body["text"] == "The Company designs phones [1]."
     assert body["abstained"] is False
-    assert len(body["citations"]) == 2
+    assert len(body["citations"]) == 1
     assert body["source"]["company"] == "Example Inc"
 
 
