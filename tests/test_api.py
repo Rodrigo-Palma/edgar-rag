@@ -1,9 +1,17 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from edgar_rag.api import app, provide_embedder, provide_generator, provide_index, provide_settings
+from edgar_rag.api import (
+    app,
+    provide_embedder,
+    provide_gate,
+    provide_generator,
+    provide_index,
+    provide_settings,
+)
 from edgar_rag.config import Settings
 from edgar_rag.embeddings import ModelError
+from edgar_rag.gate import BrierGate, CosineGate
 from tests.conftest import FakeEmbedder, FakeGenerator
 
 ON_TOPIC = "what does the company design?"
@@ -95,3 +103,24 @@ def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
 
     assert response.status_code == 503
     assert "ingest" in response.json()["detail"]
+
+
+def test_the_gate_is_cosine_only_while_no_brier_url_is_configured():
+    settings = Settings(edgar_user_agent="tester test@example.com", brier_url="")
+
+    assert isinstance(provide_gate(settings), CosineGate)
+
+
+def test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it():
+    settings = Settings(
+        edgar_user_agent="tester test@example.com",
+        brier_url="http://brier.test",
+        brier_min_confidence=0.8,
+        min_retrieval_score=0.4,
+    )
+
+    gate = provide_gate(settings)
+
+    assert isinstance(gate, BrierGate)
+    assert gate.min_confidence == 0.8
+    assert gate.fallback == CosineGate(0.4)

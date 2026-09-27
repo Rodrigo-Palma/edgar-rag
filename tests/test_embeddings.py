@@ -65,3 +65,20 @@ def test_a_server_that_is_not_running_is_reported_with_its_url(monkeypatch):
 
     with pytest.raises(ModelError, match="api/embed did not answer"):
         OllamaEmbedder("http://localhost:11434", "nomic").embed(("a",))
+
+
+def test_passages_are_lower_cased_before_they_are_sent(monkeypatch):
+    """Ollama 0.18.0 collapses every capitalised token onto one vector."""
+    sent = _reply(monkeypatch, {"embeddings": [[1.0, 0.0]]})
+
+    OllamaEmbedder("http://localhost:11434", "nomic").embed(("The Company designs Phones",))
+
+    assert sent[0]["json"]["input"] == ["the company designs phones"]
+
+
+def test_lowercasing_can_be_turned_off_when_the_tokenizer_is_fixed(monkeypatch):
+    sent = _reply(monkeypatch, {"embeddings": [[1.0, 0.0]]})
+
+    OllamaEmbedder("http://localhost:11434", "nomic", lowercase=False).embed(("The Company",))
+
+    assert sent[0]["json"]["input"] == ["The Company"]

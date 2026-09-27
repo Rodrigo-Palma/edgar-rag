@@ -16,6 +16,7 @@ from edgar_rag.embeddings import (
     OllamaEmbedder,
     OllamaGenerator,
 )
+from edgar_rag.gate import BrierGate, CosineGate, RelevanceGate
 from edgar_rag.index import FilingIndex
 
 app = FastAPI(title="edgar-rag", version="0.1.0")
@@ -58,6 +59,18 @@ def health(settings: SettingsDep) -> dict[str, object]:
     return {"status": "ready", "indexed_filing": index.source, "chunks": len(index.chunks)}
 
 
+def provide_gate(settings: SettingsDep) -> RelevanceGate:
+    """Cosine on its own, or brier with cosine behind it."""
+    cosine = CosineGate(min_score=settings.min_retrieval_score)
+    if not settings.brier_url:
+        return cosine
+    return BrierGate(
+        url=settings.brier_url,
+        min_confidence=settings.brier_min_confidence,
+        fallback=cosine,
+    )
+
+
 @app.post("/ask")
 def ask(
     request: AskRequest,
@@ -65,6 +78,7 @@ def ask(
     index: Annotated[FilingIndex, Depends(provide_index)],
     embedder: Annotated[Embedder, Depends(provide_embedder)],
     generator: Annotated[Generator, Depends(provide_generator)],
+    gate: Annotated[RelevanceGate, Depends(provide_gate)],
 ) -> dict[str, object]:
     try:
         answer = answer_question(
@@ -72,7 +86,7 @@ def ask(
             index=index,
             embedder=embedder,
             generator=generator,
-            min_score=settings.min_retrieval_score,
+            gate=gate,
             top_k=request.top_k,
         )
     except ModelError as error:

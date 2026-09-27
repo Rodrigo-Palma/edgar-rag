@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     min_retrieval_score: float = Field(default=0.55, ge=0.0, le=1.0)
     index_dir: str = "data/index"
 
+    # Leave brier_url unset to judge relevance by cosine similarity alone. Set it
+    # to a running brier service to judge it with a calibrated model instead; the
+    # cosine gate stays on as the fallback if that service is unreachable.
+    brier_url: str = ""
+    brier_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+
 
 @lru_cache
 def get_settings() -> Settings:

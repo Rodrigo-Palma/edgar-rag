@@ -29,17 +29,33 @@ def _post(url: str, payload: dict) -> dict:
 
 
 class OllamaEmbedder:
-    """Embed passages with a model running on the machine."""
+    """Embed passages with a model running on the machine.
 
-    def __init__(self, base_url: str, model: str) -> None:
+    Text is lower-cased before it is sent. On Ollama 0.18.0 with
+    nomic-embed-text, every capitalised token collapses onto a single vector:
+    "Apple", "Cat" and "Zebra" come back identical to eight decimal places, and
+    two sentences differing only in a company name come back byte for byte the
+    same. A filing is full of proper nouns, so leaving that in place throws away
+    exactly the words that identify what a passage is about. Lower-casing
+    restores the distinction; measured on one such pair, cosine went from 1.000
+    to 0.813. Pass ``lowercase=False`` to send text as written, once the upstream
+    tokenizer stops doing this.
+
+    Both the index and the queries have to agree, so this is set at
+    construction and applies to every call.
+    """
+
+    def __init__(self, base_url: str, model: str, *, lowercase: bool = True) -> None:
         self._url = f"{base_url.rstrip('/')}/api/embed"
         self._model = model
+        self._lowercase = lowercase
 
     def embed(self, texts: tuple[str, ...]) -> np.ndarray:
         if not texts:
             raise ValueError("nothing to embed")
 
-        payload = _post(self._url, {"model": self._model, "input": list(texts)})
+        sent = [text.lower() for text in texts] if self._lowercase else list(texts)
+        payload = _post(self._url, {"model": self._model, "input": sent})
         vectors = payload.get("embeddings")
         if not vectors or len(vectors) != len(texts):
             raise ModelError(f"{self._model} returned {len(vectors or [])} of {len(texts)} vectors")

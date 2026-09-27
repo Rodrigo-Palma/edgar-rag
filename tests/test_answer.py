@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from edgar_rag.answer import ABSTAINED_MESSAGE, answer_question
+from edgar_rag.gate import CosineGate
 from edgar_rag.index import build_index
 from tests.conftest import FakeEmbedder, FakeGenerator
 
@@ -14,7 +15,7 @@ def test_answers_with_a_citation_per_passage(index):
     generator = FakeGenerator("The Company designs phones [1].")
 
     answer = answer_question(
-        ON_TOPIC, index, FakeEmbedder(TABLE), generator, min_score=0.5, top_k=2
+        ON_TOPIC, index, FakeEmbedder(TABLE), generator, CosineGate(0.5), top_k=2
     )
 
     assert answer.abstained is False
@@ -28,12 +29,13 @@ def test_abstains_before_generating_when_retrieval_is_weak(index):
     generator = FakeGenerator("something invented")
 
     answer = answer_question(
-        OFF_TOPIC, index, FakeEmbedder(TABLE), generator, min_score=0.9, top_k=2
+        OFF_TOPIC, index, FakeEmbedder(TABLE), generator, CosineGate(0.9), top_k=2
     )
 
     assert answer.abstained is True
     assert answer.text == ABSTAINED_MESSAGE
     assert answer.citations == ()
+    assert "below the 0.9 threshold" in answer.reason
     # The model is never asked, so it cannot invent an answer
     assert generator.prompts == []
 
@@ -42,18 +44,19 @@ def test_abstains_when_the_model_says_the_filing_does_not_cover_it(index):
     generator = FakeGenerator("NOT IN THE FILING")
 
     answer = answer_question(
-        ON_TOPIC, index, FakeEmbedder(TABLE), generator, min_score=0.5, top_k=2
+        ON_TOPIC, index, FakeEmbedder(TABLE), generator, CosineGate(0.5), top_k=2
     )
 
     assert answer.abstained is True
     assert answer.citations == ()
+    assert answer.reason == "the model said the filing does not answer it"
     assert generator.prompts != []
 
 
 def test_the_prompt_carries_the_passages_the_answer_must_use(index):
     generator = FakeGenerator("answer [1]")
 
-    answer_question(ON_TOPIC, index, FakeEmbedder(TABLE), generator, min_score=0.5, top_k=2)
+    answer_question(ON_TOPIC, index, FakeEmbedder(TABLE), generator, CosineGate(0.5), top_k=2)
 
     prompt = generator.prompts[0]
     assert "[1] (Item 1) The Company designs phones." in prompt
@@ -62,7 +65,7 @@ def test_the_prompt_carries_the_passages_the_answer_must_use(index):
 
 def test_rejects_an_empty_question(index):
     with pytest.raises(ValueError):
-        answer_question("   ", index, FakeEmbedder(TABLE), FakeGenerator("x"), min_score=0.5)
+        answer_question("   ", index, FakeEmbedder(TABLE), FakeGenerator("x"), CosineGate(0.5))
 
 
 def test_an_index_needs_its_vectors_to_line_up():

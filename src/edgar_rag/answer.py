@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from edgar_rag.embeddings import Embedder, Generator
+from edgar_rag.gate import RelevanceGate
 from edgar_rag.index import FilingIndex, ScoredChunk
 
 PROMPT = """You answer questions about a company's SEC filing.
@@ -34,11 +35,14 @@ class Citation:
 
 @dataclass(frozen=True, slots=True)
 class Answer:
+    """``reason`` says why, which matters most when ``abstained`` is set."""
+
     question: str
     text: str
     citations: tuple[Citation, ...]
     retrieval_score: float
     abstained: bool
+    reason: str = ""
 
 
 def _quote(text: str, limit: int = 240) -> str:
@@ -71,17 +75,19 @@ def answer_question(
     index: FilingIndex,
     embedder: Embedder,
     generator: Generator,
-    min_score: float,
+    gate: RelevanceGate,
     top_k: int = 4,
 ) -> Answer:
-    """Retrieve, then answer only when the best passage clears ``min_score``.
+    """Retrieve, then answer only when the gate admits the passages.
 
     Abstaining before generation is deliberate: a model asked to answer from
     passages it was never given will invent one, and that failure is invisible
-    to the caller.
+    to the caller. The gate is an argument rather than a threshold because how
+    relevance is judged is the part of this pipeline most worth replacing.
 
     Raises:
         ValueError: when the question is empty.
+        GateError: when the gate cannot reach the service it depends on.
     """
     if not question.strip():
         raise ValueError("question must not be empty")
@@ -89,14 +95,16 @@ def answer_question(
     query = embedder.embed((question,))
     passages = index.search(query, top_k=top_k)
     best_score = passages[0].score if passages else 0.0
+    decision = gate.admits(question, passages)
 
-    if best_score < min_score:
+    if not decision.admitted:
         return Answer(
             question=question,
             text=ABSTAINED_MESSAGE,
             citations=(),
             retrieval_score=round(best_score, 4),
             abstained=True,
+            reason=decision.reason,
         )
 
     generated = generator.generate(build_prompt(question, passages))
@@ -107,4 +115,5 @@ def answer_question(
         citations=() if declined else _as_citations(passages),
         retrieval_score=round(best_score, 4),
         abstained=declined,
+        reason="the model said the filing does not answer it" if declined else decision.reason,
     )
