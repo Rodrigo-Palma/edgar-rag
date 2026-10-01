@@ -35,9 +35,9 @@ model is never called.
 
 The gate is a `typing.Protocol`, `RelevanceGate`, taking the question and the
 retrieved passages and returning a `GateDecision(admitted, confidence, reason,
-degraded)`. The pipeline depends only on the protocol. `provide_gate` in
+degraded)`. The pipeline depends only on the protocol. `build_gate` in
 `src/edgar_rag/api.py` is the single place that picks an adapter: cosine alone
-when `brier_url` is empty, otherwise `BrierGate` with `CosineGate` as fallback.
+when `brier_url` is unset, otherwise `BrierGate` with `CosineGate` as fallback.
 
 A fallback is never reported as the primary judge: when `BrierGate` cannot reach
 its service and falls back, the decision carries `degraded=True` and the reason
@@ -69,5 +69,5 @@ says so. Without a fallback the failure is raised as `GateError`.
 - [`test_abstains_before_generating_when_retrieval_is_weak`](../../tests/test_answer.py): the fake generator records no prompt when the gate refuses.
 - [`test_abstains_when_the_model_says_the_filing_does_not_cover_it`](../../tests/test_answer.py) and [`test_an_answer_that_cites_nothing_is_an_abstention`](../../tests/test_answer.py): the post-generation paths are distinct from the gate's.
 - [`test_an_unreachable_brier_falls_back_to_cosine_and_says_it_did`](../../tests/test_gate.py) and [`test_an_unreachable_brier_without_a_fallback_is_an_error`](../../tests/test_gate.py): `degraded=True` on fallback, `GateError` without one.
-- [`test_the_gate_is_cosine_only_while_no_brier_url_is_configured`](../../tests/test_api.py) and [`test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it`](../../tests/test_api.py): the wiring in `provide_gate`.
+- [`test_the_gate_is_cosine_only_while_no_brier_url_is_configured`](../../tests/test_api.py) and [`test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it`](../../tests/test_api.py): the wiring in `build_gate`.
 - Not yet enforced: a test that `degraded` reaches the HTTP response.

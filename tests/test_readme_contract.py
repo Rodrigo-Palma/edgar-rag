@@ -15,17 +15,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from edgar_rag.answer import AbstentionReason
-from edgar_rag.api import (
-    app,
-    provide_embedder,
-    provide_gate,
-    provide_generator,
-    provide_index,
-    provide_settings,
-)
+from edgar_rag.api import create_app
 from edgar_rag.config import ServiceSettings
 from edgar_rag.gate import CosineGate
-from tests.fakes import FakeEmbedder, FakeGenerator
+from tests.fakes import fake_answerer
 
 README = Path(__file__).resolve().parents[1] / "README.md"
 JSON_BLOCK = re.compile(r"```json\n(.*?)```", re.DOTALL)
@@ -47,17 +40,9 @@ def _example(*, abstained: bool) -> dict[str, object]:
 
 
 def _served(index, *, min_score: float) -> dict[str, object]:
-    app.dependency_overrides = {
-        provide_settings: lambda: ServiceSettings(),
-        provide_index: lambda: index,
-        provide_embedder: lambda: FakeEmbedder({QUESTION: [1.0, 0.0]}),
-        provide_generator: lambda: FakeGenerator("The Company designs phones [1]."),
-        provide_gate: lambda: CosineGate(min_score),
-    }
-    try:
-        response = TestClient(app).post("/ask", json={"question": QUESTION, "top_k": 2})
-    finally:
-        app.dependency_overrides = {}
+    app = create_app(ServiceSettings(), fake_answerer(index, gate=CosineGate(min_score)))
+    with TestClient(app) as client:
+        response = client.post("/ask", json={"question": QUESTION, "top_k": 2})
     assert response.status_code == 200
     body: dict[str, object] = response.json()
     return body

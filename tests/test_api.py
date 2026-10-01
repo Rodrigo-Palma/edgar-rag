@@ -1,26 +1,16 @@
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from httpx import Response
 
-import edgar_rag.gate as gate_module
-from edgar_rag.api import (
-    app,
-    provide_embedder,
-    provide_gate,
-    provide_generator,
-    provide_index,
-    provide_settings,
-)
+from edgar_rag.api import build_gate, create_app, serve
 from edgar_rag.config import ServiceSettings
 from edgar_rag.embeddings import ModelError
 from edgar_rag.gate import BrierGate, CosineGate, GateError
-from tests.fakes import FakeEmbedder, FakeGenerator
-
-ON_TOPIC = "what does the company design?"
-TABLE = {ON_TOPIC: [1.0, 0.0]}
+from tests.fakes import ON_TOPIC, fake_answerer
 
 
 def _settings(**overrides) -> ServiceSettings:
@@ -28,16 +18,18 @@ def _settings(**overrides) -> ServiceSettings:
     return ServiceSettings(**{**base, **overrides})
 
 
+@contextmanager
+def _serving(index, **collaborators) -> Iterator[TestClient]:
+    """A fresh app per test, with its lifespan run: nothing global is overridden."""
+    app = create_app(_settings(), fake_answerer(index, **collaborators))
+    with TestClient(app) as client:
+        yield client
+
+
 @pytest.fixture
-def client(index):
-    app.dependency_overrides = {
-        provide_settings: lambda: _settings(),
-        provide_index: lambda: index,
-        provide_embedder: lambda: FakeEmbedder(TABLE),
-        provide_generator: lambda: FakeGenerator("The Company designs phones [1]."),
-    }
-    yield TestClient(app)
-    app.dependency_overrides = {}
+def client(index) -> Iterator[TestClient]:
+    with _serving(index) as served:
+        yield served
 
 
 def test_ask_returns_the_answer_its_citations_and_the_filing(client):
@@ -70,14 +62,8 @@ def test_a_value_error_from_the_core_is_a_client_error_not_a_crash(index):
         def embed(self, texts):
             raise ValueError("nothing to embed")
 
-    app.dependency_overrides = {
-        provide_settings: lambda: _settings(),
-        provide_index: lambda: index,
-        provide_embedder: lambda: RefusingEmbedder(),
-        provide_generator: lambda: FakeGenerator("unused"),
-    }
-    response = TestClient(app).post("/ask", json={"question": ON_TOPIC})
-    app.dependency_overrides = {}
+    with _serving(index, embedder=RefusingEmbedder()) as client:
+        response = client.post("/ask", json={"question": ON_TOPIC})
 
     assert response.status_code == 422
     assert "nothing to embed" not in response.json()["detail"]
@@ -102,18 +88,9 @@ def _assert_no_topology(text: str) -> None:
         assert leak not in text, f"{leak!r} leaked into {text!r}"
 
 
-def _ask_with(index, overrides: dict) -> Response:
-    app.dependency_overrides = {
-        provide_settings: lambda: _settings(),
-        provide_index: lambda: index,
-        provide_embedder: lambda: FakeEmbedder(TABLE),
-        provide_generator: lambda: FakeGenerator("The Company designs phones [1]."),
-        **overrides,
-    }
-    try:
-        return TestClient(app).post("/ask", json={"question": ON_TOPIC, "top_k": 2})
-    finally:
-        app.dependency_overrides = {}
+def _ask_with(index, **collaborators) -> httpx.Response:
+    with _serving(index, **collaborators) as client:
+        return client.post("/ask", json={"question": ON_TOPIC, "top_k": 2})
 
 
 def test_ask_reports_a_model_failure_as_a_bad_gateway_without_its_url(index, caplog):
@@ -126,7 +103,7 @@ def test_ask_reports_a_model_failure_as_a_bad_gateway_without_its_url(index, cap
             )
 
     with caplog.at_level(logging.ERROR, logger="edgar_rag.api"):
-        response = _ask_with(index, {provide_generator: lambda: BrokenGenerator()})
+        response = _ask_with(index, generator=BrokenGenerator())
 
     assert response.status_code == 502
     _assert_no_topology(response.text)
@@ -138,7 +115,7 @@ def test_an_embedder_failure_is_a_bad_gateway_too(index):
         def embed(self, texts):
             raise ModelError("http://localhost:11434/api/embed did not answer")
 
-    response = _ask_with(index, {provide_embedder: lambda: BrokenEmbedder()})
+    response = _ask_with(index, embedder=BrokenEmbedder())
 
     assert response.status_code == 502
     _assert_no_topology(response.text)
@@ -152,23 +129,37 @@ def test_a_gate_that_cannot_reach_its_model_is_a_bad_gateway_not_a_crash(index, 
             raise GateError("http://localhost:8100 did not answer: ConnectError")
 
     with caplog.at_level(logging.ERROR, logger="edgar_rag.api"):
-        response = _ask_with(index, {provide_gate: lambda: UnreachableGate()})
+        response = _ask_with(index, gate=UnreachableGate())
 
     assert response.status_code == 502
     _assert_no_topology(response.text)
     assert "http://localhost:8100" in caplog.text
 
 
-def test_a_degraded_brier_answer_tells_the_client_nothing_about_the_brier_host(index, monkeypatch):
+def _brier_client(*confidences: float) -> httpx.Client:
+    """A brier service that judges passage n with confidences[n-1], or fails past them.
+
+    With no confidences it refuses every connection.
+    """
+    asked: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if not confidences:
+            raise httpx.ConnectError("[Errno 61] Connection refused", request=request)
+        asked.append(1)
+        if len(asked) > len(confidences):
+            return httpx.Response(503, text="down")
+        yes = confidences[len(asked) - 1]
+        return httpx.Response(200, json={"answers": [{"probabilities": [1 - yes, yes]}]})
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_a_degraded_brier_answer_tells_the_client_nothing_about_the_brier_host(index):
     """Adversarial case 14, end to end: the gate reason is part of the response."""
-
-    def refuse(url, json, timeout):
-        raise httpx.ConnectError("[Errno 61] Connection refused")
-
-    monkeypatch.setattr(gate_module.httpx, "post", refuse)
-    degraded_gate = BrierGate("http://localhost:8100", fallback=CosineGate(0.5))
-
-    response = _ask_with(index, {provide_gate: lambda: degraded_gate})
+    with _brier_client() as brier:
+        gate = BrierGate("http://localhost:8100", fallback=CosineGate(0.5), client=brier)
+        response = _ask_with(index, gate=gate)
 
     assert response.status_code == 200
     assert "relevance model unavailable" in response.json()["detail"]
@@ -177,28 +168,27 @@ def test_a_degraded_brier_answer_tells_the_client_nothing_about_the_brier_host(i
 
 def test_health_says_which_filing_is_indexed(index, tmp_path):
     index.save(tmp_path)
-    app.dependency_overrides = {provide_settings: lambda: _settings(index_dir=str(tmp_path))}
-    response = TestClient(app).get("/health")
-    app.dependency_overrides = {}
+    with TestClient(create_app(_settings(index_dir=tmp_path))) as client:
+        body = client.get("/health").json()
 
-    body = response.json()
     assert body["status"] == "ready"
     assert body["chunks"] == 2
 
 
 def test_health_reports_a_missing_index_instead_of_failing(tmp_path):
-    app.dependency_overrides = {provide_settings: lambda: _settings(index_dir=str(tmp_path))}
-    response = TestClient(app).get("/health")
-    app.dependency_overrides = {}
+    with TestClient(create_app(_settings(index_dir=tmp_path))) as client:
+        response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "no index", "indexed_filing": None, "chunks": 0}
+    body = response.json()
+    assert body["status"] == "no index"
+    assert body["indexed_filing"] is None
+    assert body["chunks"] == 0
 
 
 def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
-    app.dependency_overrides = {provide_settings: lambda: _settings(index_dir=str(tmp_path))}
-    response = TestClient(app).post("/ask", json={"question": ON_TOPIC})
-    app.dependency_overrides = {}
+    with TestClient(create_app(_settings(index_dir=tmp_path))) as client:
+        response = client.post("/ask", json={"question": ON_TOPIC})
 
     assert response.status_code == 503
     assert "ingest" in response.json()["detail"]
@@ -207,9 +197,8 @@ def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
 
 
 def test_the_gate_is_cosine_only_while_no_brier_url_is_configured():
-    settings = ServiceSettings(brier_url=None)
-
-    assert isinstance(provide_gate(settings), CosineGate)
+    with httpx.Client() as client:
+        assert isinstance(build_gate(ServiceSettings(brier_url=None), client), CosineGate)
 
 
 def test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it():
@@ -219,36 +208,22 @@ def test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it()
         min_retrieval_score=0.4,
     )
 
-    gate = provide_gate(settings)
+    with httpx.Client() as client:
+        gate = build_gate(settings, client)
 
     assert isinstance(gate, BrierGate)
     assert gate.min_confidence == 0.8
     assert gate.fallback == CosineGate(0.4)
+    assert gate.client is client
 
 
-def _brier_replying(*confidences: float):
-    """A brier service that judges passage n with confidences[n-1], or fails past them."""
-    asked: list[int] = []
-
-    def post(url, json, timeout):  # noqa: ARG001 - mirrors httpx.post
-        asked.append(1)
-        request = httpx.Request("POST", url)
-        if len(asked) > len(confidences):
-            return httpx.Response(503, text="down", request=request)
-        yes = confidences[len(asked) - 1]
-        return httpx.Response(
-            200, json={"answers": [{"probabilities": [1 - yes, yes]}]}, request=request
-        )
-
-    return post
-
-
-def test_a_partly_judged_brier_refusal_reaches_the_client_as_degraded(index, monkeypatch):
+def test_a_partly_judged_brier_refusal_reaches_the_client_as_degraded(index):
     """Red flag 8: passage 2 was never judged, and the response used to hide it."""
-    monkeypatch.setattr(gate_module.httpx, "post", _brier_replying(0.4))
-    gate = BrierGate("http://brier.test", min_confidence=0.7, fallback=CosineGate(0.5))
-
-    response = _ask_with(index, {provide_gate: lambda: gate})
+    with _brier_client(0.4) as brier:
+        gate = BrierGate(
+            "http://brier.test", min_confidence=0.7, fallback=CosineGate(0.5), client=brier
+        )
+        response = _ask_with(index, gate=gate)
 
     assert response.status_code == 200
     body = response.json()
@@ -260,12 +235,11 @@ def test_a_partly_judged_brier_refusal_reaches_the_client_as_degraded(index, mon
     _assert_no_topology(response.text)
 
 
-def test_a_brier_outage_answered_by_cosine_reaches_the_client_as_degraded(index, monkeypatch):
+def test_a_brier_outage_answered_by_cosine_reaches_the_client_as_degraded(index):
     """The fallback is never reported as a model decision."""
-    monkeypatch.setattr(gate_module.httpx, "post", _brier_replying())
-    gate = BrierGate("http://brier.test", fallback=CosineGate(0.5))
-
-    body = _ask_with(index, {provide_gate: lambda: gate}).json()
+    with _brier_client() as brier:
+        gate = BrierGate("http://brier.test", fallback=CosineGate(0.5), client=brier)
+        body = _ask_with(index, gate=gate).json()
 
     assert body["abstained"] is False
     assert body["reason"] is None
@@ -300,3 +274,12 @@ def test_the_ask_response_is_published_in_the_openapi_schema(client):
     assert ok["schema"] == {"$ref": "#/components/schemas/AskResponse"}
     reason = schema["components"]["schemas"]["AbstentionReason"]
     assert "model_declined" in reason["enum"]
+
+
+def test_the_service_is_served_on_the_local_machine_unless_configured_otherwise():
+    """No authentication and no rate limit: only 127.0.0.1 can reach it by default."""
+    calls: list[dict[str, object]] = []
+
+    serve(_settings(), run=lambda app, **address: calls.append(address))
+
+    assert calls == [{"host": "127.0.0.1", "port": 8000}]

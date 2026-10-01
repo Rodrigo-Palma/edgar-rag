@@ -11,8 +11,10 @@ from collections.abc import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
-from edgar_rag.gate import GateDecision
-from edgar_rag.index import ScoredChunk
+from edgar_rag.answer import Answerer
+from edgar_rag.embeddings import Embedder, Generator
+from edgar_rag.gate import CosineGate, GateDecision, RelevanceGate
+from edgar_rag.index import FilingIndex, ScoredChunk
 
 
 class FakeEmbedder:
@@ -86,3 +88,27 @@ class FixedNonce:
     def __call__(self) -> str:
         self.calls += 1
         return self.value
+
+
+ON_TOPIC = "what does the company design?"
+CITED_REPLY = "The Company designs phones [1]."
+
+
+def fake_answerer(
+    index: FilingIndex,
+    *,
+    embedder: Embedder | None = None,
+    generator: Generator | None = None,
+    gate: RelevanceGate | None = None,
+) -> Answerer:
+    """An answerer over ``index`` that places ``ON_TOPIC`` on the first passage.
+
+    Each collaborator can be replaced on its own, so a service test states
+    only the part it is about.
+    """
+    return Answerer(
+        index=index,
+        embedder=embedder if embedder is not None else FakeEmbedder({ON_TOPIC: [1.0, 0.0]}),
+        generator=generator if generator is not None else FakeGenerator(CITED_REPLY),
+        gate=gate if gate is not None else CosineGate(0.5),
+    )
