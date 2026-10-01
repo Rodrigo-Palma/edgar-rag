@@ -71,3 +71,47 @@ def test_a_missing_document_names_the_url_that_failed():
 
     with pytest.raises(EdgarError, match="aapl-20250927.htm"):
         fetch_latest_filing(320193, "Tester test@example.com", client=_client(handler))
+
+
+def _recent(**overrides) -> dict:
+    recent = {**SUBMISSIONS["filings"]["recent"], **overrides}
+    return {"name": "Apple Inc.", "filings": {"recent": recent}}
+
+
+MALFORMED_SUBMISSIONS = {
+    "accessions-shorter-than-forms": _recent(accessionNumber=["0000-00-000001"]),
+    "documents-missing": {
+        "name": "Apple Inc.",
+        "filings": {"recent": {"form": ["10-K"], "accessionNumber": ["0000320193-25-000079"]}},
+    },
+    "forms-not-a-list": _recent(form="10-K"),
+    "accession-not-text": _recent(accessionNumber=[1, 2, 3]),
+    "recent-not-an-object": {"name": "Apple Inc.", "filings": {"recent": ["10-K"]}},
+    "name-not-text": {**SUBMISSIONS, "name": ["Apple"]},
+}
+
+
+@pytest.mark.parametrize(
+    "payload", MALFORMED_SUBMISSIONS.values(), ids=MALFORMED_SUBMISSIONS.keys()
+)
+def test_malformed_submissions_are_an_edgar_error_before_any_download(payload):
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, json=payload)
+
+    with pytest.raises(EdgarError, match="CIK 320193"):
+        fetch_latest_filing(320193, "Tester test@example.com", client=_client(handler))
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize(
+    "content", [b"<html>rate limited</html>", b'["not", "an", "object"]', b"null"]
+)
+def test_submissions_that_are_not_a_json_object_are_an_edgar_error(content):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=content)
+
+    with pytest.raises(EdgarError, match="CIK 320193"):
+        fetch_latest_filing(320193, "Tester test@example.com", client=_client(handler))
