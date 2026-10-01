@@ -12,6 +12,7 @@ from types import MappingProxyType
 from edgar_rag.embeddings import Embedder, Generator
 from edgar_rag.gate import GateDecision, RelevanceGate
 from edgar_rag.index import FilingIndex, ScoredChunk
+from edgar_rag.telemetry import StageTimer
 
 PROMPT = """You answer questions about a company's SEC filing.
 
@@ -312,6 +313,7 @@ def answer_question(
     gate: RelevanceGate,
     top_k: int = 4,
     nonce: NonceSource = random_nonce,
+    stages: StageTimer | None = None,
 ) -> Answer:
     """Retrieve, then answer only when the gate admits the passages.
 
@@ -324,6 +326,9 @@ def answer_question(
     request and nothing else. Anything short of exact equality, including the
     old fixed phrase a filing could quote, goes through the citation check.
 
+    ``stages``, when given, records the time spent embedding, searching,
+    gating and generating; a request the gate stopped has no generate stage.
+
     Raises:
         ValueError: when the question is empty, or the nonce source returns a
             value that could break the delimiter.
@@ -332,10 +337,14 @@ def answer_question(
     if not question.strip():
         raise ValueError("question must not be empty")
 
-    query = embedder.embed((question,))
-    passages = index.search(query, top_k=top_k)
+    timer = stages if stages is not None else StageTimer()
+    with timer.measure("embed"):
+        query = embedder.embed((question,))
+    with timer.measure("search"):
+        passages = index.search(query, top_k=top_k)
     best_score = round(passages[0].score if passages else 0.0, 4)
-    decision = gate.admits(question, passages)
+    with timer.measure("gate"):
+        decision = gate.admits(question, passages)
 
     def abstain(reason: AbstentionReason) -> Answer:
         return _abstention(question, reason, decision, best_score)
@@ -344,7 +353,9 @@ def answer_question(
         return abstain(AbstentionReason.GATE_REJECTED)
 
     drawn = _draw(nonce)
-    generated = generator.generate(build_prompt(question, passages, drawn))
+    prompt = build_prompt(question, passages, drawn)
+    with timer.measure("generate"):
+        generated = generator.generate(prompt)
     if generated.strip() == refusal_token(drawn):
         return abstain(AbstentionReason.MODEL_DECLINED)
 
@@ -367,6 +378,39 @@ def answer_question(
         gate_score=decision.confidence,
         degraded=decision.degraded,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Answerer:
+    """The answering pipeline with its collaborators bound once.
+
+    The service builds one at startup, so the index is read and the clients
+    are opened once rather than on every request.
+    """
+
+    index: FilingIndex
+    embedder: Embedder
+    generator: Generator
+    gate: RelevanceGate
+    nonce: NonceSource = random_nonce
+
+    @property
+    def source(self) -> dict[str, str]:
+        """The filing the answers come from."""
+        return self.index.source
+
+    def ask(self, question: str, top_k: int = 4, stages: StageTimer | None = None) -> Answer:
+        """Answer from the bound index; see ``answer_question`` for what can raise."""
+        return answer_question(
+            question=question,
+            index=self.index,
+            embedder=self.embedder,
+            generator=self.generator,
+            gate=self.gate,
+            top_k=top_k,
+            nonce=self.nonce,
+            stages=stages,
+        )
 
 
 def _abstention(

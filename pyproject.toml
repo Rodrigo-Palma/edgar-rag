@@ -75,6 +75,7 @@ source_modules = [
     "edgar_rag.embeddings",
     "edgar_rag.gate",
     "edgar_rag.index",
+    "edgar_rag.telemetry",
 ]
 forbidden_modules = ["edgar_rag.api"]
 
@@ -88,8 +89,23 @@ source_modules = [
     "edgar_rag.embeddings",
     "edgar_rag.gate",
     "edgar_rag.index",
+    "edgar_rag.telemetry",
 ]
 forbidden_modules = ["edgar_rag.config"]
+
+[[tool.importlinter.contracts]]
+name = "Telemetry is a leaf: it measures and logs, and knows no stage"
+type = "forbidden"
+source_modules = ["edgar_rag.telemetry"]
+forbidden_modules = [
+    "edgar_rag.answer",
+    "edgar_rag.chunking",
+    "edgar_rag.edgar",
+    "edgar_rag.embeddings",
+    "edgar_rag.eval",
+    "edgar_rag.gate",
+    "edgar_rag.index",
+]
 
 [[tool.importlinter.contracts]]
 name = "Adapters do not depend on the answering core"
