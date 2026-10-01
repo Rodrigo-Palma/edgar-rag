@@ -155,7 +155,7 @@ python scripts/evaluate_gates.py     # needs a brier service on :8100
 ```bash
 uv sync --frozen            # runtime and dev tools, exactly as locked in uv.lock
 make check                  # lint, types, import contracts, tests with coverage
-cp .env.example .env        # the SEC requires a real contact in EDGAR_USER_AGENT
+cp .env.example .env        # the SEC requires a real contact in EDGAR_RAG_EDGAR_USER_AGENT
 ollama pull nomic-embed-text && ollama pull qwen3:32b
 
 uv run python scripts/ingest.py --cik 320193    # Apple's latest 10-K

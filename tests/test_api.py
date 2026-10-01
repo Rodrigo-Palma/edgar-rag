@@ -14,7 +14,7 @@ from edgar_rag.api import (
     provide_index,
     provide_settings,
 )
-from edgar_rag.config import Settings
+from edgar_rag.config import ServiceSettings
 from edgar_rag.embeddings import ModelError
 from edgar_rag.gate import BrierGate, CosineGate, GateError
 from tests.fakes import FakeEmbedder, FakeGenerator
@@ -23,13 +23,9 @@ ON_TOPIC = "what does the company design?"
 TABLE = {ON_TOPIC: [1.0, 0.0]}
 
 
-def _settings(**overrides) -> Settings:
-    base = {
-        "edgar_user_agent": "Test Runner tests@ledgerworks.io",
-        "min_retrieval_score": 0.5,
-        "index_dir": "unused",
-    }
-    return Settings(**{**base, **overrides})
+def _settings(**overrides) -> ServiceSettings:
+    base = {"min_retrieval_score": 0.5, "index_dir": "unused"}
+    return ServiceSettings(**{**base, **overrides})
 
 
 @pytest.fixture
@@ -211,14 +207,13 @@ def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
 
 
 def test_the_gate_is_cosine_only_while_no_brier_url_is_configured():
-    settings = Settings(edgar_user_agent="Test Runner tests@ledgerworks.io", brier_url="")
+    settings = ServiceSettings(brier_url=None)
 
     assert isinstance(provide_gate(settings), CosineGate)
 
 
 def test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it():
-    settings = Settings(
-        edgar_user_agent="Test Runner tests@ledgerworks.io",
+    settings = ServiceSettings(
         brier_url="http://brier.test",
         brier_min_confidence=0.8,
         min_retrieval_score=0.4,

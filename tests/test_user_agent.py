@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from edgar_rag.config import Settings
+from edgar_rag.config import IngestSettings
 from edgar_rag.edgar.user_agent import validate_user_agent
 
 DECLARED = "Jane Analyst jane.analyst@ledgerworks.io"
@@ -42,8 +42,8 @@ def test_a_placeholder_or_undeclared_sender_is_rejected(user_agent):
 def test_settings_refuse_the_placeholder_user_agent(user_agent):
     # Adversarial case 20: the template copied as is must not reach EDGAR
     with pytest.raises(ValidationError, match="edgar_user_agent"):
-        Settings(edgar_user_agent=user_agent)
+        IngestSettings(edgar_user_agent=user_agent)
 
 
 def test_settings_keep_a_declared_user_agent():
-    assert Settings(edgar_user_agent=DECLARED).edgar_user_agent == DECLARED
+    assert IngestSettings(edgar_user_agent=DECLARED).edgar_user_agent == DECLARED

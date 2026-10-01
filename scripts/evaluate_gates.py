@@ -8,9 +8,8 @@ words are nearby. This script measures whether the model gate can.
 
 import argparse
 from dataclasses import dataclass
-from pathlib import Path
 
-from edgar_rag.config import get_settings
+from edgar_rag.config import EvalSettings
 from edgar_rag.embeddings import OllamaEmbedder
 from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
 from edgar_rag.index import FilingIndex
@@ -126,9 +125,9 @@ def main() -> int:
     parser.add_argument("--brier-confidence", type=float, default=0.7)
     arguments = parser.parse_args()
 
-    settings = get_settings()
-    index = FilingIndex.load(Path(settings.index_dir))
-    embedder = OllamaEmbedder(settings.ollama_base_url, settings.embedding_model)
+    settings = EvalSettings()
+    index = FilingIndex.load(settings.index_dir)
+    embedder = OllamaEmbedder(str(settings.ollama_base_url), settings.embedding_model)
     print(f"filing: {index.source['company']} {index.source['form']}, {len(index.chunks)} chunks")
 
     scores = [

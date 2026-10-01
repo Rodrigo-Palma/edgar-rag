@@ -2,7 +2,6 @@
 
 import logging
 from dataclasses import asdict
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request
@@ -11,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from edgar_rag import __version__
 from edgar_rag.answer import AbstentionReason, Answer, answer_question
-from edgar_rag.config import Settings, get_settings
+from edgar_rag.config import ServiceSettings
 from edgar_rag.embeddings import (
     Embedder,
     Generator,
@@ -107,33 +106,33 @@ def report_missing_index(request: Request, error: IndexUnavailable) -> JSONRespo
     )
 
 
-def provide_settings() -> Settings:
-    return get_settings()
+def provide_settings() -> ServiceSettings:
+    return ServiceSettings()
 
 
-SettingsDep = Annotated[Settings, Depends(provide_settings)]
+SettingsDep = Annotated[ServiceSettings, Depends(provide_settings)]
 
 
 def provide_index(settings: SettingsDep) -> FilingIndex:
     """Load the index, or tell the caller the service has nothing to answer from."""
     try:
-        return FilingIndex.load(Path(settings.index_dir))
+        return FilingIndex.load(settings.index_dir)
     except FileNotFoundError as error:
         raise IndexUnavailable(str(error)) from error
 
 
 def provide_embedder(settings: SettingsDep) -> Embedder:
-    return OllamaEmbedder(settings.ollama_base_url, settings.embedding_model)
+    return OllamaEmbedder(str(settings.ollama_base_url), settings.embedding_model)
 
 
 def provide_generator(settings: SettingsDep) -> Generator:
-    return OllamaGenerator(settings.ollama_base_url, settings.generation_model)
+    return OllamaGenerator(str(settings.ollama_base_url), settings.generation_model)
 
 
 @app.get("/health")
 def health(settings: SettingsDep) -> dict[str, object]:
     try:
-        index = FilingIndex.load(Path(settings.index_dir))
+        index = FilingIndex.load(settings.index_dir)
     except FileNotFoundError:
         return {"status": "no index", "indexed_filing": None, "chunks": 0}
     return {"status": "ready", "indexed_filing": index.source, "chunks": len(index.chunks)}
@@ -142,10 +141,10 @@ def health(settings: SettingsDep) -> dict[str, object]:
 def provide_gate(settings: SettingsDep) -> RelevanceGate:
     """Cosine on its own, or brier with cosine behind it."""
     cosine = CosineGate(min_score=settings.min_retrieval_score)
-    if not settings.brier_url:
+    if settings.brier_url is None:
         return cosine
     return BrierGate(
-        url=settings.brier_url,
+        url=str(settings.brier_url),
         min_confidence=settings.brier_min_confidence,
         fallback=cosine,
     )
