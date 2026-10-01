@@ -12,7 +12,7 @@ from edgar_rag.api import (
 from edgar_rag.config import Settings
 from edgar_rag.embeddings import ModelError
 from edgar_rag.gate import BrierGate, CosineGate
-from tests.conftest import FakeEmbedder, FakeGenerator
+from tests.fakes import FakeEmbedder, FakeGenerator
 
 ON_TOPIC = "what does the company design?"
 TABLE = {ON_TOPIC: [1.0, 0.0]}

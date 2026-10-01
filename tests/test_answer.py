@@ -1,11 +1,10 @@
-import numpy as np
 import pytest
 
 from edgar_rag.answer import ABSTAINED_MESSAGE, answer_question, build_prompt
 from edgar_rag.chunking import Chunk
 from edgar_rag.gate import CosineGate
-from edgar_rag.index import ScoredChunk, build_index
-from tests.conftest import FakeEmbedder, FakeGenerator
+from edgar_rag.index import ScoredChunk
+from tests.fakes import FakeEmbedder, FakeGenerator
 
 ON_TOPIC = "what does the company design?"
 OFF_TOPIC = "who won the league in 1998?"
@@ -117,14 +116,6 @@ def test_the_prompt_carries_the_passages_the_answer_must_use(index):
 def test_rejects_an_empty_question(index):
     with pytest.raises(ValueError):
         answer_question("   ", index, FakeEmbedder(TABLE), FakeGenerator("x"), CosineGate(0.5))
-
-
-def test_an_index_needs_its_vectors_to_line_up():
-    chunks = build_index.__doc__  # sanity: the helper is documented
-    assert chunks
-
-    with pytest.raises(ValueError):
-        build_index({}, (), np.zeros((0, 2), dtype=np.float32))
 
 
 def test_passage_text_cannot_fabricate_a_citation_or_force_a_refusal():

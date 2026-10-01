@@ -42,3 +42,8 @@ def test_building_rejects_a_mismatch_between_chunks_and_vectors():
 
     with pytest.raises(ValueError, match="1 chunks"):
         build_index({}, chunks, np.zeros((2, 3), dtype=np.float32))
+
+
+def test_building_rejects_an_index_with_no_chunks():
+    with pytest.raises(ValueError, match="at least one chunk"):
+        build_index({}, (), np.zeros((0, 2), dtype=np.float32))
