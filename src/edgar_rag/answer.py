@@ -4,11 +4,13 @@ import hashlib
 import re
 import secrets
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
+from types import MappingProxyType
 
 from edgar_rag.embeddings import Embedder, Generator
-from edgar_rag.gate import RelevanceGate
+from edgar_rag.gate import GateDecision, RelevanceGate
 from edgar_rag.index import FilingIndex, ScoredChunk
 
 PROMPT = """You answer questions about a company's SEC filing.
@@ -72,9 +74,60 @@ STOPWORDS = frozenset(
     }
 )
 MARKER_PATTERN = re.compile(r"\[(\d+)\]")
-ABSTAINED_MESSAGE = (
-    "I did not find passages close enough to the question in this filing, so I am not answering."
+
+
+class AbstentionReason(StrEnum):
+    """Why an answer was withheld. The values are part of the HTTP contract.
+
+    Which check fired matters to a caller as much as the fact that one did: a
+    gate rejection means the filing had nothing close, while a model refusal
+    means it had something close that did not hold the answer. Free prose
+    could not be acted on without parsing it, so the reason is a closed set
+    and the prose lives in ``Answer.detail``.
+
+    ``out_of_period``, ``unsupported_claim`` and ``out_of_scope`` belong to
+    checks that are not in the pipeline yet (the period guard, the citation
+    support check and multi-filing scope). They are published now so adding
+    those checks does not change the contract.
+    """
+
+    GATE_REJECTED = "gate_rejected"
+    OUT_OF_PERIOD = "out_of_period"
+    MODEL_DECLINED = "model_declined"
+    NO_VALID_CITATION = "no_valid_citation"
+    UNSUPPORTED_CLAIM = "unsupported_claim"
+    OUT_OF_SCOPE = "out_of_scope"
+
+
+# One sentence per reason, because a single "no passages close enough" message
+# contradicted the reason whenever the model or the citation check declined.
+ABSTAINED_MESSAGES: Mapping[AbstentionReason, str] = MappingProxyType(
+    {
+        AbstentionReason.GATE_REJECTED: (
+            "No passage in this filing is close enough to the question, so the model was not asked."
+        ),
+        AbstentionReason.OUT_OF_PERIOD: (
+            "The question asks about a period this filing does not cover, "
+            "so the model was not asked."
+        ),
+        AbstentionReason.MODEL_DECLINED: (
+            "The model read the closest passages and found no answer in them."
+        ),
+        AbstentionReason.NO_VALID_CITATION: (
+            "The answer cited no retrieved passage, so it could not be checked and is withheld."
+        ),
+        AbstentionReason.UNSUPPORTED_CLAIM: (
+            "The answer makes a claim its cited passage does not support, so it is withheld."
+        ),
+        AbstentionReason.OUT_OF_SCOPE: (
+            "The question is about a filing outside the indexed scope, so the model was not asked."
+        ),
+    }
 )
+
+
+def abstained_message(reason: AbstentionReason) -> str:
+    return ABSTAINED_MESSAGES[reason]
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,14 +141,26 @@ class Citation:
 
 @dataclass(frozen=True, slots=True)
 class Answer:
-    """``reason`` says why, which matters most when ``abstained`` is set."""
+    """An answer with its citations, or the reason there is none.
+
+    ``text`` is ``None`` exactly when ``abstained`` is set, and then ``reason``
+    says which check withheld it. ``detail`` is the same story in words, for a
+    person: the message for the reason followed by what the gate found.
+    ``gate_score`` is the gate's own confidence, which is cosine similarity or
+    a probability depending on the gate, and ``degraded`` says the gate ran on
+    part of its evidence or on its fallback, which a caller must be able to
+    tell apart from a model decision.
+    """
 
     question: str
-    text: str
+    text: str | None
     citations: tuple[Citation, ...]
-    retrieval_score: float
     abstained: bool
-    reason: str = ""
+    reason: AbstentionReason | None
+    detail: str
+    retrieval_score: float
+    gate_score: float
+    degraded: bool
 
 
 def random_nonce() -> str:
@@ -268,31 +333,19 @@ def answer_question(
 
     query = embedder.embed((question,))
     passages = index.search(query, top_k=top_k)
-    best_score = passages[0].score if passages else 0.0
+    best_score = round(passages[0].score if passages else 0.0, 4)
     decision = gate.admits(question, passages)
 
+    def abstain(reason: AbstentionReason) -> Answer:
+        return _abstention(question, reason, decision, best_score)
+
     if not decision.admitted:
-        return Answer(
-            question=question,
-            text=ABSTAINED_MESSAGE,
-            citations=(),
-            retrieval_score=round(best_score, 4),
-            abstained=True,
-            reason=decision.reason,
-        )
+        return abstain(AbstentionReason.GATE_REJECTED)
 
     drawn = _draw(nonce)
     generated = generator.generate(build_prompt(question, passages, drawn))
-    declined = generated.strip() == refusal_token(drawn)
-    if declined:
-        return Answer(
-            question=question,
-            text=ABSTAINED_MESSAGE,
-            citations=(),
-            retrieval_score=round(best_score, 4),
-            abstained=True,
-            reason="the model said the filing does not answer it",
-        )
+    if generated.strip() == refusal_token(drawn):
+        return abstain(AbstentionReason.MODEL_DECLINED)
 
     cited = markers_in(generated, len(passages))
     if not cited:
@@ -300,20 +353,37 @@ def answer_question(
         # asked for a marker on every factual sentence. Treating it as an
         # answer would hand the caller exactly the unverifiable output this
         # service exists to avoid.
-        return Answer(
-            question=question,
-            text=ABSTAINED_MESSAGE,
-            citations=(),
-            retrieval_score=round(best_score, 4),
-            abstained=True,
-            reason="the answer cited no passage, so it could not be checked",
-        )
+        return abstain(AbstentionReason.NO_VALID_CITATION)
 
     return Answer(
         question=question,
         text=generated,
         citations=_as_citations(passages, question, cited),
-        retrieval_score=round(best_score, 4),
         abstained=False,
-        reason=decision.reason,
+        reason=None,
+        detail=decision.reason,
+        retrieval_score=best_score,
+        gate_score=decision.confidence,
+        degraded=decision.degraded,
+    )
+
+
+def _abstention(
+    question: str, reason: AbstentionReason, decision: GateDecision, retrieval_score: float
+) -> Answer:
+    """Withhold the answer, keeping what the gate said even when it admitted.
+
+    A model refusal after a degraded gate is still a degraded request, so the
+    gate's score and flag travel with every abstention, not only its own.
+    """
+    return Answer(
+        question=question,
+        text=None,
+        citations=(),
+        abstained=True,
+        reason=reason,
+        detail=f"{abstained_message(reason)} ({decision.reason})",
+        retrieval_score=retrieval_score,
+        gate_score=decision.confidence,
+        degraded=decision.degraded,
     )

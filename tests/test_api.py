@@ -175,7 +175,7 @@ def test_a_degraded_brier_answer_tells_the_client_nothing_about_the_brier_host(i
     response = _ask_with(index, {provide_gate: lambda: degraded_gate})
 
     assert response.status_code == 200
-    assert "relevance model unavailable" in response.json()["reason"]
+    assert "relevance model unavailable" in response.json()["detail"]
     _assert_no_topology(response.text)
 
 

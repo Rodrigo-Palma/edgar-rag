@@ -29,7 +29,7 @@ import unicodedata
 import numpy as np
 import pytest
 
-from edgar_rag.answer import answer_question, case_nonce, random_nonce
+from edgar_rag.answer import AbstentionReason, answer_question, case_nonce, random_nonce
 from edgar_rag.chunking import Chunk
 from edgar_rag.edgar.parse import html_to_text
 from edgar_rag.gate import CosineGate
@@ -40,7 +40,7 @@ NONCE = "0badc0de"
 QUESTION = "what does the company design?"
 OPEN_TAG = f"<passages-{NONCE}>"
 CLOSE_TAG = f"</passages-{NONCE}>"
-DECLINED = "the model said the filing does not answer it"
+DECLINED = AbstentionReason.MODEL_DECLINED
 TURN = re.compile(r"(question|answer)\s*:", re.IGNORECASE)
 REFUSAL_PHRASE = re.compile(r"not\s+in\s+the\s+filing", re.IGNORECASE)
 
@@ -82,7 +82,7 @@ def _as_read(text: str) -> str:
     return "".join(char for char in folded if unicodedata.category(char) != "Cf")
 
 
-def _ask(reply: str, index: FilingIndex) -> str:
+def _ask(reply: str, index: FilingIndex) -> AbstentionReason | None:
     """Run one admitted request and return the reason the answer carries."""
     answer = answer_question(
         QUESTION,
@@ -252,8 +252,7 @@ def test_a_refusal_without_the_nonce_is_not_a_refusal(index, reply):
     """
     reason = _ask(reply, index)
 
-    assert reason != DECLINED
-    assert "cited no passage" in reason
+    assert reason is AbstentionReason.NO_VALID_CITATION
 
 
 # Case 8
@@ -275,8 +274,7 @@ def test_only_the_exact_token_is_a_refusal(index, reply):
     """Locked decision: anything other than the bare token goes through the checks."""
     reason = _ask(reply, index)
 
-    assert reason != DECLINED
-    assert "cited no passage" in reason
+    assert reason is AbstentionReason.NO_VALID_CITATION
 
 
 def test_a_token_followed_by_a_cited_answer_is_checked_as_an_answer(index):

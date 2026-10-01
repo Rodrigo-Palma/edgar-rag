@@ -1,6 +1,6 @@
 import pytest
 
-from edgar_rag.answer import ABSTAINED_MESSAGE, answer_question, build_prompt
+from edgar_rag.answer import AbstentionReason, answer_question, build_prompt
 from edgar_rag.chunking import Chunk
 from edgar_rag.gate import CosineGate
 from edgar_rag.index import ScoredChunk
@@ -45,7 +45,7 @@ def test_an_answer_that_cites_nothing_is_an_abstention(index):
     )
 
     assert answer.abstained is True
-    assert "cited no passage" in answer.reason
+    assert answer.reason is AbstentionReason.NO_VALID_CITATION
 
 
 def test_an_invented_marker_is_not_shown_as_a_source(index):
@@ -83,9 +83,10 @@ def test_abstains_before_generating_when_retrieval_is_weak(index):
     )
 
     assert answer.abstained is True
-    assert answer.text == ABSTAINED_MESSAGE
+    assert answer.text is None
     assert answer.citations == ()
-    assert "below the 0.9 threshold" in answer.reason
+    assert answer.reason is AbstentionReason.GATE_REJECTED
+    assert "below the 0.9 threshold" in answer.detail
     # The model is never asked, so it cannot invent an answer
     assert generator.prompts == []
 
@@ -105,7 +106,7 @@ def test_abstains_when_the_model_says_the_filing_does_not_cover_it(index):
 
     assert answer.abstained is True
     assert answer.citations == ()
-    assert answer.reason == "the model said the filing does not answer it"
+    assert answer.reason is AbstentionReason.MODEL_DECLINED
     assert generator.prompts != []
 
 
