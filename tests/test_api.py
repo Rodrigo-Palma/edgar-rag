@@ -229,3 +229,79 @@ def test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it()
     assert isinstance(gate, BrierGate)
     assert gate.min_confidence == 0.8
     assert gate.fallback == CosineGate(0.4)
+
+
+def _brier_replying(*confidences: float):
+    """A brier service that judges passage n with confidences[n-1], or fails past them."""
+    asked: list[int] = []
+
+    def post(url, json, timeout):  # noqa: ARG001 - mirrors httpx.post
+        asked.append(1)
+        request = httpx.Request("POST", url)
+        if len(asked) > len(confidences):
+            return httpx.Response(503, text="down", request=request)
+        yes = confidences[len(asked) - 1]
+        return httpx.Response(
+            200, json={"answers": [{"probabilities": [1 - yes, yes]}]}, request=request
+        )
+
+    return post
+
+
+def test_a_partly_judged_brier_refusal_reaches_the_client_as_degraded(index, monkeypatch):
+    """Red flag 8: passage 2 was never judged, and the response used to hide it."""
+    monkeypatch.setattr(gate_module.httpx, "post", _brier_replying(0.4))
+    gate = BrierGate("http://brier.test", min_confidence=0.7, fallback=CosineGate(0.5))
+
+    response = _ask_with(index, {provide_gate: lambda: gate})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["abstained"] is True
+    assert body["text"] is None
+    assert body["reason"] == "gate_rejected"
+    assert body["degraded"] is True
+    assert body["gate_score"] == 0.4
+    _assert_no_topology(response.text)
+
+
+def test_a_brier_outage_answered_by_cosine_reaches_the_client_as_degraded(index, monkeypatch):
+    """The fallback is never reported as a model decision."""
+    monkeypatch.setattr(gate_module.httpx, "post", _brier_replying())
+    gate = BrierGate("http://brier.test", fallback=CosineGate(0.5))
+
+    body = _ask_with(index, {provide_gate: lambda: gate}).json()
+
+    assert body["abstained"] is False
+    assert body["reason"] is None
+    assert body["degraded"] is True
+    assert body["gate_score"] == 1.0
+
+
+def test_a_healthy_answer_carries_every_field_of_the_contract(client):
+    body = client.post("/ask", json={"question": ON_TOPIC, "top_k": 2}).json()
+
+    assert set(body) == {
+        "question",
+        "text",
+        "citations",
+        "abstained",
+        "reason",
+        "detail",
+        "retrieval_score",
+        "gate_score",
+        "degraded",
+        "source",
+    }
+    assert body["degraded"] is False
+    assert set(body["citations"][0]) == {"marker", "item", "title", "quote", "score"}
+
+
+def test_the_ask_response_is_published_in_the_openapi_schema(client):
+    """``response_model`` is what makes the schema a promise rather than a sample."""
+    schema = client.get("/openapi.json").json()
+
+    ok = schema["paths"]["/ask"]["post"]["responses"]["200"]["content"]["application/json"]
+    assert ok["schema"] == {"$ref": "#/components/schemas/AskResponse"}
+    reason = schema["components"]["schemas"]["AbstentionReason"]
+    assert "model_declined" in reason["enum"]
