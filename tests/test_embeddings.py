@@ -120,8 +120,8 @@ def test_a_generator_reply_that_is_not_a_json_object_is_a_model_error(monkeypatc
 
 @pytest.mark.parametrize(
     "vectors",
-    [[[1.0, 0.0], [1.0]], [[1.0, "x"], [0.0, 1.0]], [None, [0.0, 1.0]], "two vectors"],
-    ids=["ragged", "text-component", "null-vector", "a-string"],
+    [[[1.0, 0.0], [1.0]], [[1.0, "x"], [0.0, 1.0]], [None, [0.0, 1.0]], "ab", [1.0, 0.0]],
+    ids=["ragged", "text-component", "null-vector", "a-string", "flat"],
 )
 def test_malformed_vectors_are_a_model_error(monkeypatch, vectors):
     _reply(monkeypatch, {"embeddings": vectors})
