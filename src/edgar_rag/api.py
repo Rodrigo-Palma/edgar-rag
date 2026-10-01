@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from edgar_rag import __version__
 from edgar_rag.answer import answer_question
 from edgar_rag.config import Settings, get_settings
 from edgar_rag.embeddings import (
@@ -19,7 +20,7 @@ from edgar_rag.embeddings import (
 from edgar_rag.gate import BrierGate, CosineGate, RelevanceGate
 from edgar_rag.index import FilingIndex
 
-app = FastAPI(title="edgar-rag", version="0.1.0")
+app = FastAPI(title="edgar-rag", version=__version__)
 
 
 class AskRequest(BaseModel):
