@@ -58,6 +58,43 @@ def test_ask_rejects_a_top_k_outside_the_allowed_range(client):
     assert client.post("/ask", json={"question": ON_TOPIC, "top_k": 99}).status_code == 422
 
 
+@pytest.mark.parametrize("question", ["   ", "\t\n  \n", "  hi  "])
+def test_ask_rejects_a_question_that_is_blank_once_trimmed(client, question):
+    """Whitespace passed the length check and reached the core as a 500."""
+    assert client.post("/ask", json={"question": question}).status_code == 422
+
+
+def test_a_value_error_from_the_core_is_a_client_error_not_a_crash(index):
+    class RefusingEmbedder:
+        def embed(self, texts):
+            raise ValueError("nothing to embed")
+
+    app.dependency_overrides = {
+        provide_settings: lambda: _settings(),
+        provide_index: lambda: index,
+        provide_embedder: lambda: RefusingEmbedder(),
+        provide_generator: lambda: FakeGenerator("unused"),
+    }
+    response = TestClient(app).post("/ask", json={"question": ON_TOPIC})
+    app.dependency_overrides = {}
+
+    assert response.status_code == 422
+    assert "nothing to embed" not in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"question": "x" * 501},
+        {"question": ON_TOPIC, "top_k": 0},
+        {"question": ON_TOPIC, "top_k": 11},
+    ],
+    ids=["question-501-chars", "top_k-0", "top_k-11"],
+)
+def test_ask_rejects_inputs_just_outside_the_limits(client, body):
+    assert client.post("/ask", json=body).status_code == 422
+
+
 def test_ask_reports_a_model_failure_as_a_bad_gateway(index):
     class BrokenGenerator:
         def generate(self, prompt: str) -> str:

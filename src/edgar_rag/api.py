@@ -1,11 +1,13 @@
 """The service: one endpoint that answers, and one that reports readiness."""
 
+import logging
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, StringConstraints
 
 from edgar_rag import __version__
 from edgar_rag.answer import answer_question
@@ -20,12 +22,23 @@ from edgar_rag.embeddings import (
 from edgar_rag.gate import BrierGate, CosineGate, RelevanceGate
 from edgar_rag.index import FilingIndex
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="edgar-rag", version=__version__)
 
 
 class AskRequest(BaseModel):
-    question: str = Field(min_length=3, max_length=500)
+    # Trimmed before the length check, so a question of only whitespace is
+    # rejected here instead of reaching the core.
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
     top_k: int = Field(default=4, ge=1, le=10)
+
+
+@app.exception_handler(ValueError)
+def reject_invalid_input(request: Request, error: ValueError) -> JSONResponse:
+    """The core signals a question it cannot use with ``ValueError``: a client error."""
+    logger.warning("rejected %s %s: %s", request.method, request.url.path, error)
+    return JSONResponse(status_code=422, content={"detail": "the question could not be used"})
 
 
 def provide_settings() -> Settings:
