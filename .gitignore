@@ -9,3 +9,9 @@ htmlcov/
 # Everything under data/ is a generated artefact: downloaded filings and
 # built indexes, including any suffixed variant used to compare two runs.
 data/
+# Local environment files hold the SEC User-Agent (a real e-mail address).
+# Only the template is tracked.
+.env.*
+!.env.example
+.mypy_cache/
+.import_linter_cache/
