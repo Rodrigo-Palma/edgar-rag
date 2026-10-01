@@ -189,11 +189,12 @@ def _draw(nonce: NonceSource) -> str:
 def _quote(text: str, question: str, limit: int = 400) -> str:
     """The part of the passage a reader should look at, not just its opening.
 
-    Returning the first 240 characters was measured to miss the cited fact in
+    Quoting the opening of the passage was measured to miss the cited fact in
     5 of 5 gold passages of a real 10-K: the numbers sit 350 to 930 characters
-    in, because the section opens with prose and the figures follow. This picks
-    the window around the sentence that shares the most content words with the
-    question, and falls back to the opening when nothing overlaps.
+    in, because the section opens with prose and the figures follow. This
+    returns a window of ``limit`` characters (400 by default) around the
+    sentence that shares the most content words with the question, and falls
+    back to the opening when nothing overlaps.
     """
     sentences = _sentences(text)
     if not sentences:
