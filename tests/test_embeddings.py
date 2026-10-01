@@ -82,3 +82,57 @@ def test_lowercasing_can_be_turned_off_when_the_tokenizer_is_fixed(monkeypatch):
     OllamaEmbedder("http://localhost:11434", "nomic", lowercase=False).embed(("The Company",))
 
     assert sent[0]["json"]["input"] == ["The Company"]
+
+
+def _raw_reply(monkeypatch, content: bytes) -> None:
+    """Answer every post with ``content`` as the body, whatever it is."""
+
+    def fake_post(url, json, timeout):
+        return httpx.Response(200, content=content, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(embeddings.httpx, "post", fake_post)
+
+
+NOT_A_JSON_OBJECT = {
+    "not-json": b"<html>502 Bad Gateway</html>",
+    "truncated": b'{"embeddings": [[1.0',
+    "a-list": b"[[1.0, 0.0]]",
+    "a-string": b'"ok"',
+    "null": b"null",
+}
+
+
+@pytest.mark.parametrize("content", NOT_A_JSON_OBJECT.values(), ids=NOT_A_JSON_OBJECT.keys())
+def test_an_embedder_reply_that_is_not_a_json_object_is_a_model_error(monkeypatch, content):
+    _raw_reply(monkeypatch, content)
+
+    with pytest.raises(ModelError):
+        OllamaEmbedder("http://localhost:11434", "nomic").embed(("a",))
+
+
+@pytest.mark.parametrize("content", NOT_A_JSON_OBJECT.values(), ids=NOT_A_JSON_OBJECT.keys())
+def test_a_generator_reply_that_is_not_a_json_object_is_a_model_error(monkeypatch, content):
+    _raw_reply(monkeypatch, content)
+
+    with pytest.raises(ModelError):
+        OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")
+
+
+@pytest.mark.parametrize(
+    "vectors",
+    [[[1.0, 0.0], [1.0]], [[1.0, "x"], [0.0, 1.0]], [None, [0.0, 1.0]], "two vectors"],
+    ids=["ragged", "text-component", "null-vector", "a-string"],
+)
+def test_malformed_vectors_are_a_model_error(monkeypatch, vectors):
+    _reply(monkeypatch, {"embeddings": vectors})
+
+    with pytest.raises(ModelError):
+        OllamaEmbedder("http://localhost:11434", "nomic").embed(("a", "b"))
+
+
+@pytest.mark.parametrize("response", [42, ["an answer"], {"text": "an answer"}])
+def test_a_generation_that_is_not_text_is_a_model_error(monkeypatch, response):
+    _reply(monkeypatch, {"response": response})
+
+    with pytest.raises(ModelError):
+        OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")

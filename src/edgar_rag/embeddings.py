@@ -23,11 +23,20 @@ class Generator(Protocol):
 
 
 def _post(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Post and return the JSON object the server replied with.
+
+    Raises:
+        ModelError: when the server is unreachable, fails, or replies with
+            anything other than a JSON object.
+    """
     try:
         response = httpx.post(url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
-        return cast(dict[str, Any], response.raise_for_status().json())
-    except httpx.HTTPError as error:
+        reply = response.raise_for_status().json()
+    except (httpx.HTTPError, ValueError) as error:
         raise ModelError(f"{url} did not answer: {error}") from error
+    if not isinstance(reply, dict):
+        raise ModelError(f"{url} replied with a JSON {type(reply).__name__}, not an object")
+    return cast(dict[str, Any], reply)
 
 
 class OllamaEmbedder:
@@ -61,7 +70,13 @@ class OllamaEmbedder:
         vectors = payload.get("embeddings")
         if not vectors or len(vectors) != len(texts):
             raise ModelError(f"{self._model} returned {len(vectors or [])} of {len(texts)} vectors")
-        return np.asarray(vectors, dtype=np.float32)
+        try:
+            matrix = np.asarray(vectors, dtype=np.float32)
+        except (TypeError, ValueError) as error:
+            raise ModelError(f"{self._model} returned vectors that are not numbers") from error
+        if matrix.ndim != 2:
+            raise ModelError(f"{self._model} returned vectors of unequal or no length")
+        return matrix
 
 
 class OllamaGenerator:
@@ -76,7 +91,10 @@ class OllamaGenerator:
             self._url,
             {"model": self._model, "prompt": prompt, "stream": False, "think": False},
         )
-        answer = (payload.get("response") or "").strip()
+        response = payload.get("response") or ""
+        if not isinstance(response, str):
+            raise ModelError(f"{self._model} returned a {type(response).__name__}, not text")
+        answer = response.strip()
         if not answer:
             raise ModelError(f"{self._model} returned an empty answer")
         return answer
