@@ -7,14 +7,32 @@ version asks a model trained for the question, which costs a call and reports a
 calibrated confidence.
 """
 
+import logging
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Annotated, Protocol
 
 import httpx
+from pydantic import BaseModel, Field, ValidationError
 
 from edgar_rag.index import ScoredChunk
 
 REQUEST_TIMEOUT_SECONDS = 30.0
+# What a client sees when the brier service failed. The URL and the exception
+# go to the log only: the reason is returned to whoever asked the question.
+UNAVAILABLE_REASON = "relevance model unavailable"
+
+logger = logging.getLogger(__name__)
+
+Probability = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False, strict=True)]
+
+
+class _BrierAnswer(BaseModel):
+    # One probability per option, in the order sent: ["no", "yes"]
+    probabilities: Annotated[list[Probability], Field(min_length=2, max_length=2)]
+
+
+class _BrierReply(BaseModel):
+    answers: Annotated[list[_BrierAnswer], Field(min_length=1)]
 
 
 class GateError(RuntimeError):
@@ -94,11 +112,12 @@ class BrierGate:
         except GateError as error:
             if self.fallback is None:
                 raise
+            logger.warning("brier gate failed, using the fallback: %s", error)
             fell_back = self.fallback.admits(question, passages)
             return GateDecision(
                 admitted=fell_back.admitted,
                 confidence=fell_back.confidence,
-                reason=f"{fell_back.reason} (degraded: {error})",
+                reason=f"{fell_back.reason} (degraded: {UNAVAILABLE_REASON}, fallback used)",
                 degraded=True,
             )
 
@@ -107,19 +126,25 @@ class BrierGate:
 
         Evidence already gathered is kept if a later call fails, so one bad
         request does not throw away a confident yes from an earlier passage.
+        A passage that could not be judged marks the decision ``degraded``,
+        because it rests on part of the evidence. A judged confidence of 0.0
+        counts as judged: it is an answer, not the absence of one.
 
         Raises:
             GateError: when no passage could be judged at all.
         """
         best_confidence, best_position = 0.0, 1
-        failure: GateError | None = None
+        judged, failed = 0, 0
+        last_failure: GateError | None = None
 
         for position, scored in enumerate(passages, start=1):
             try:
                 confidence = self._confidence(question, scored.chunk.text)
             except GateError as error:
-                failure = error
+                logger.warning("brier could not judge passage %d: %s", position, error)
+                failed, last_failure = failed + 1, error
                 continue
+            judged += 1
             if confidence > best_confidence:
                 best_confidence, best_position = confidence, position
             if confidence >= self.min_confidence:
@@ -128,11 +153,13 @@ class BrierGate:
                     confidence=round(confidence, 4),
                     reason=(
                         f"passage {position} answers the question with confidence {confidence:.3f}"
+                        + _unjudged_note(failed, judged + failed)
                     ),
+                    degraded=failed > 0,
                 )
 
-        if failure is not None and not best_confidence:
-            raise failure
+        if judged == 0 and last_failure is not None:
+            raise last_failure
 
         return GateDecision(
             admitted=False,
@@ -140,7 +167,9 @@ class BrierGate:
             reason=(
                 f"no passage cleared {self.min_confidence}; the closest was "
                 f"passage {best_position} at {best_confidence:.3f}"
+                + _unjudged_note(failed, judged + failed)
             ),
+            degraded=failed > 0,
         )
 
     def confidence_for(self, question: str, passage: str) -> float:
@@ -168,7 +197,14 @@ class BrierGate:
             response = httpx.post(
                 f"{self.url.rstrip('/')}/decide", json=payload, timeout=REQUEST_TIMEOUT_SECONDS
             )
-            answer = response.raise_for_status().json()["answers"][0]
-        except (httpx.HTTPError, KeyError, IndexError, ValueError) as error:
+            reply = _BrierReply.model_validate_json(response.raise_for_status().content)
+        except (httpx.HTTPError, ValidationError) as error:
             raise GateError(f"{self.url} did not answer: {error}") from error
-        return float(answer["probabilities"][1])
+        return reply.answers[0].probabilities[1]
+
+
+def _unjudged_note(failed: int, asked: int) -> str:
+    """Say how much of the evidence is missing, without saying why."""
+    if not failed:
+        return ""
+    return f"; {failed} of {asked} passages could not be judged ({UNAVAILABLE_REASON})"

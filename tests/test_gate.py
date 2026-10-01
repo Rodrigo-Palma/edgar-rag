@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 import pytest
 
@@ -193,7 +195,9 @@ def test_a_partial_failure_keeps_the_confidence_already_gathered(monkeypatch):
 
     assert decision.admitted is False
     assert decision.confidence == 0.4
-    assert decision.degraded is False
+    # Passage 2 was never judged, so the refusal rests on part of the evidence
+    assert decision.degraded is True
+    assert "1 of 2 passages could not be judged" in decision.reason
 
 
 def test_a_total_failure_still_raises(monkeypatch):
@@ -215,3 +219,126 @@ def test_the_reason_never_names_a_passage_that_does_not_exist(monkeypatch):
 
     assert "passage 0" not in decision.reason
     assert "passage 1" in decision.reason
+
+
+def _replying(status: int, content: bytes):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, content=content, headers={"content-type": "application/json"})
+
+    return handler
+
+
+def _assert_no_topology(text: str) -> None:
+    """Nothing a client could use to map the machines behind the service."""
+    lowered = text.lower()
+    for leak in ("http", "localhost", "8100", "error", "exception", "connect"):
+        assert leak not in lowered, f"{leak!r} leaked into {text!r}"
+
+
+MALFORMED_REPLIES = {
+    "one-probability": b'{"answers": [{"probabilities": [0.1]}]}',
+    "nan": b'{"answers": [{"probabilities": [0.5, NaN]}]}',
+    "infinity": b'{"answers": [{"probabilities": [0.5, Infinity]}]}',
+    "above-one": b'{"answers": [{"probabilities": [0.1, 1.7]}]}',
+    "below-zero": b'{"answers": [{"probabilities": [0.1, -0.2]}]}',
+    "null-probabilities": b'{"answers": [{"probabilities": null}]}',
+    "no-probabilities": b'{"answers": [{"name": "relevance"}]}',
+    "text-probability": b'{"answers": [{"probabilities": [0.1, "high"]}]}',
+    "no-answers": b'{"answers": []}',
+    "answers-not-a-list": b'{"answers": {"probabilities": [0.1, 0.9]}}',
+    "not-an-object": b"[0.1, 0.9]",
+    "not-json": b"<html>bad gateway</html>",
+}
+
+
+@pytest.mark.parametrize("content", MALFORMED_REPLIES.values(), ids=MALFORMED_REPLIES.keys())
+def test_a_malformed_probability_falls_back_instead_of_crashing(monkeypatch, content):
+    monkeypatch.setattr(gate_module.httpx, "post", _posting(_replying(200, content)))
+
+    decision = BrierGate("http://brier.test", fallback=CosineGate(0.5)).admits(
+        QUESTION, _passages(0.8)
+    )
+
+    assert decision.admitted is True
+    assert decision.degraded is True
+
+
+@pytest.mark.parametrize("content", MALFORMED_REPLIES.values(), ids=MALFORMED_REPLIES.keys())
+def test_a_malformed_probability_without_a_fallback_is_a_gate_error(monkeypatch, content):
+    monkeypatch.setattr(gate_module.httpx, "post", _posting(_replying(200, content)))
+
+    with pytest.raises(GateError):
+        BrierGate("http://brier.test").admits(QUESTION, _passages(0.8))
+
+
+def test_a_confidence_of_zero_is_an_answer_not_a_missing_one(monkeypatch):
+    """``not best_confidence`` used to read a judged 0.0 as nothing judged."""
+    calls: list[int] = []
+    zero = b'{"answers": [{"probabilities": [1.0, 0.0]}]}'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return _replying(200, zero)(request)
+        return httpx.Response(503, text="down")
+
+    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+
+    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+        QUESTION, _passages(0.8, 0.7)
+    )
+
+    assert decision.admitted is False
+    assert decision.confidence == 0.0
+    assert decision.degraded is True
+
+
+def test_an_admission_after_a_failed_passage_is_still_marked_degraded(monkeypatch):
+    calls: list[int] = []
+    confident = b'{"answers": [{"probabilities": [0.1, 0.9]}]}'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(503, text="down")
+        return _replying(200, confident)(request)
+
+    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+
+    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+        QUESTION, _passages(0.8, 0.7)
+    )
+
+    assert decision.admitted is True
+    assert decision.degraded is True
+
+
+def test_a_fully_judged_refusal_is_not_degraded(monkeypatch):
+    handler, _ = _answering(0.3, 0.55)
+    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+
+    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+        QUESTION, _passages(0.8, 0.7)
+    )
+
+    assert decision.degraded is False
+
+
+def test_the_degraded_reason_names_no_url_and_no_exception(monkeypatch, caplog):
+    """Adversarial case 14: the reason reaches the client, the detail only the log."""
+
+    def post(url, json, timeout):
+        raise httpx.ConnectError("[Errno 61] Connection refused")
+
+    monkeypatch.setattr(gate_module.httpx, "post", post)
+
+    with caplog.at_level(logging.WARNING, logger="edgar_rag.gate"):
+        decision = BrierGate("http://localhost:8100", fallback=CosineGate(0.5)).admits(
+            QUESTION, _passages(0.8)
+        )
+
+    assert decision.degraded is True
+    assert "relevance model unavailable" in decision.reason
+    _assert_no_topology(decision.reason)
+    assert "http://localhost:8100" in caplog.text
+    assert "Connection refused" in caplog.text
