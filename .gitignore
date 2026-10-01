@@ -7,8 +7,9 @@ __pycache__/
 htmlcov/
 .env
 # Everything under data/ is a generated artefact: downloaded filings and
-# built indexes, including any suffixed variant used to compare two runs.
-data/
+# built indexes, including any suffixed variant used to compare two runs, and
+# the EDGAR download cache. Anchored to the root: tests/data/ holds fixtures.
+/data/
 # Local environment files hold the SEC User-Agent (a real e-mail address).
 # Only the template is tracked.
 .env.*
