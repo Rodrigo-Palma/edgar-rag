@@ -113,3 +113,23 @@ forbidden_modules = [
     "edgar_rag.gate",
     "edgar_rag.index",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Evaluation statistics are pure: no I/O layer, model or service"
+type = "forbidden"
+source_modules = [
+    "edgar_rag.eval.bootstrap",
+    "edgar_rag.eval.metrics",
+    "edgar_rag.eval.numeric",
+    "edgar_rag.eval.power",
+]
+forbidden_modules = [
+    "edgar_rag.answer",
+    "edgar_rag.api",
+    "edgar_rag.chunking",
+    "edgar_rag.config",
+    "edgar_rag.edgar",
+    "edgar_rag.embeddings",
+    "edgar_rag.gate",
+    "edgar_rag.index",
+]
