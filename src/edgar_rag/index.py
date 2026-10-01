@@ -3,8 +3,10 @@
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from edgar_rag.chunking import Chunk
 
@@ -24,9 +26,9 @@ class FilingIndex:
 
     source: dict[str, str]
     chunks: tuple[Chunk, ...]
-    vectors: np.ndarray
+    vectors: NDArray[np.float32]
 
-    def search(self, query: np.ndarray, top_k: int = 4) -> tuple[ScoredChunk, ...]:
+    def search(self, query: NDArray[np.float32], top_k: int = 4) -> tuple[ScoredChunk, ...]:
         """Return the ``top_k`` closest chunks, best first."""
         if top_k <= 0:
             raise ValueError("top_k must be positive")
@@ -55,17 +57,19 @@ class FilingIndex:
 
         payload = json.loads(chunks_path.read_text(encoding="utf-8"))
         chunks = tuple(Chunk(**chunk) for chunk in payload["chunks"])
-        return cls(source=payload["source"], chunks=chunks, vectors=np.load(vectors_path))
+        vectors = np.load(vectors_path).astype(np.float32, copy=False)
+        return cls(source=payload["source"], chunks=chunks, vectors=vectors)
 
 
-def _unit(vectors: np.ndarray) -> np.ndarray:
+def _unit(vectors: NDArray[np.float32]) -> NDArray[np.float32]:
     """Scale rows to unit length so a dot product is a cosine similarity."""
     norms = np.linalg.norm(vectors, axis=-1, keepdims=True)
-    return vectors / np.where(norms == 0, 1.0, norms)
+    scaled = vectors / np.where(norms == 0, 1.0, norms)
+    return scaled.astype(np.float32, copy=False)
 
 
 def build_index(
-    source: dict[str, str], chunks: tuple[Chunk, ...], vectors: np.ndarray
+    source: dict[str, str], chunks: tuple[Chunk, ...], vectors: NDArray[np.floating[Any]]
 ) -> FilingIndex:
     """Pair chunks with their vectors.
 

@@ -1,6 +1,7 @@
 """Download a filing from SEC EDGAR."""
 
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -28,7 +29,7 @@ def _headers(user_agent: str) -> dict[str, str]:
     return {"User-Agent": user_agent, "Accept-Encoding": "gzip, deflate"}
 
 
-def _pick_filing(submissions: dict, form: str) -> tuple[str, str, str]:
+def _pick_filing(submissions: dict[str, Any], form: str) -> tuple[str, str, str]:
     """Return (accession, primary document, filing date) of the newest ``form``.
 
     EDGAR returns the recent filings as parallel arrays, newest first.

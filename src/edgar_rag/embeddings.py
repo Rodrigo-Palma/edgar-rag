@@ -1,9 +1,11 @@
 """Embedding and generation, served by a local Ollama."""
 
-from typing import Protocol
+from collections.abc import Sequence
+from typing import Any, Protocol, cast
 
 import httpx
 import numpy as np
+from numpy.typing import NDArray
 
 REQUEST_TIMEOUT_SECONDS = 120.0
 
@@ -13,17 +15,17 @@ class ModelError(RuntimeError):
 
 
 class Embedder(Protocol):
-    def embed(self, texts: tuple[str, ...]) -> np.ndarray: ...
+    def embed(self, texts: Sequence[str]) -> NDArray[np.float32]: ...
 
 
 class Generator(Protocol):
     def generate(self, prompt: str) -> str: ...
 
 
-def _post(url: str, payload: dict) -> dict:
+def _post(url: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         response = httpx.post(url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
-        return response.raise_for_status().json()
+        return cast(dict[str, Any], response.raise_for_status().json())
     except httpx.HTTPError as error:
         raise ModelError(f"{url} did not answer: {error}") from error
 
@@ -50,7 +52,7 @@ class OllamaEmbedder:
         self._model = model
         self._lowercase = lowercase
 
-    def embed(self, texts: tuple[str, ...]) -> np.ndarray:
+    def embed(self, texts: Sequence[str]) -> NDArray[np.float32]:
         if not texts:
             raise ValueError("nothing to embed")
 
