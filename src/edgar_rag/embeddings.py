@@ -22,15 +22,19 @@ class Generator(Protocol):
     def generate(self, prompt: str) -> str: ...
 
 
-def _post(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _post(url: str, payload: dict[str, Any], client: httpx.Client | None) -> dict[str, Any]:
     """Post and return the JSON object the server replied with.
+
+    The service passes the one ``client`` it opened at startup, so calls share
+    its connection pool. Without one, a connection is opened for the call.
 
     Raises:
         ModelError: when the server is unreachable, fails, or replies with
             anything other than a JSON object.
     """
     try:
-        response = httpx.post(url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
+        post = client.post if client is not None else httpx.post
+        response = post(url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
         reply = response.raise_for_status().json()
     except (httpx.HTTPError, ValueError) as error:
         raise ModelError(f"{url} did not answer: {error}") from error
@@ -56,17 +60,25 @@ class OllamaEmbedder:
     construction and applies to every call.
     """
 
-    def __init__(self, base_url: str, model: str, *, lowercase: bool = True) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        *,
+        lowercase: bool = True,
+        client: httpx.Client | None = None,
+    ) -> None:
         self._url = f"{base_url.rstrip('/')}/api/embed"
         self._model = model
         self._lowercase = lowercase
+        self._client = client
 
     def embed(self, texts: Sequence[str]) -> NDArray[np.float32]:
         if not texts:
             raise ValueError("nothing to embed")
 
         sent = [text.lower() for text in texts] if self._lowercase else list(texts)
-        payload = _post(self._url, {"model": self._model, "input": sent})
+        payload = _post(self._url, {"model": self._model, "input": sent}, self._client)
         vectors = payload.get("embeddings")
         if not vectors or len(vectors) != len(texts):
             raise ModelError(f"{self._model} returned {len(vectors or [])} of {len(texts)} vectors")
@@ -82,14 +94,16 @@ class OllamaEmbedder:
 class OllamaGenerator:
     """Generate an answer with a model running on the machine."""
 
-    def __init__(self, base_url: str, model: str) -> None:
+    def __init__(self, base_url: str, model: str, *, client: httpx.Client | None = None) -> None:
         self._url = f"{base_url.rstrip('/')}/api/generate"
         self._model = model
+        self._client = client
 
     def generate(self, prompt: str) -> str:
         payload = _post(
             self._url,
             {"model": self._model, "prompt": prompt, "stream": False, "think": False},
+            self._client,
         )
         response = payload.get("response") or ""
         if not isinstance(response, str):

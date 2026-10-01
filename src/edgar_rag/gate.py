@@ -8,7 +8,7 @@ calibrated confidence.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Protocol
 
 import httpx
@@ -97,6 +97,9 @@ class BrierGate:
     url: str
     min_confidence: float = 0.7
     fallback: RelevanceGate | None = None
+    # The service's pooled client; a connection per call without one. It is
+    # plumbing, so two gates asking the same URL the same way are equal.
+    client: httpx.Client | None = field(default=None, compare=False, repr=False)
 
     def admits(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision:
         """Judge the passages, falling back only if a fallback was given.
@@ -194,7 +197,8 @@ class BrierGate:
             ],
         }
         try:
-            response = httpx.post(
+            post = self.client.post if self.client is not None else httpx.post
+            response = post(
                 f"{self.url.rstrip('/')}/decide", json=payload, timeout=REQUEST_TIMEOUT_SECONDS
             )
             reply = _BrierReply.model_validate_json(response.raise_for_status().content)

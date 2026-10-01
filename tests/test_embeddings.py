@@ -136,3 +136,51 @@ def test_a_generation_that_is_not_text_is_a_model_error(monkeypatch, response):
 
     with pytest.raises(ModelError):
         OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")
+
+
+def _client_answering(payload: dict) -> tuple[httpx.Client, list[httpx.Request]]:
+    """A client that answers every request with ``payload`` and records it."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=payload)
+
+    return httpx.Client(transport=httpx.MockTransport(handler)), seen
+
+
+def _no_module_post(monkeypatch) -> None:
+    def refuse(*args, **kwargs):
+        raise AssertionError("the module-level httpx.post was used instead of the client")
+
+    monkeypatch.setattr(embeddings.httpx, "post", refuse)
+
+
+def test_an_embedder_given_a_client_sends_through_it(monkeypatch):
+    """One pooled client for the life of the service, not a connection per call."""
+    _no_module_post(monkeypatch)
+    client, seen = _client_answering({"embeddings": [[1.0, 0.0]]})
+
+    with client:
+        OllamaEmbedder("http://ollama.test", "nomic", client=client).embed(("a",))
+
+    assert [str(request.url) for request in seen] == ["http://ollama.test/api/embed"]
+
+
+def test_a_generator_given_a_client_sends_through_it(monkeypatch):
+    _no_module_post(monkeypatch)
+    client, seen = _client_answering({"response": "an answer [1]"})
+
+    with client:
+        answer = OllamaGenerator("http://ollama.test", "qwen3", client=client).generate("p")
+
+    assert answer == "an answer [1]"
+    assert [str(request.url) for request in seen] == ["http://ollama.test/api/generate"]
+
+
+def test_a_client_that_cannot_connect_is_a_model_error():
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(refuse)) as client, pytest.raises(ModelError):
+        OllamaEmbedder("http://ollama.test", "nomic", client=client).embed(("a",))

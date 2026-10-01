@@ -342,3 +342,22 @@ def test_the_degraded_reason_names_no_url_and_no_exception(monkeypatch, caplog):
     _assert_no_topology(decision.reason)
     assert "http://localhost:8100" in caplog.text
     assert "Connection refused" in caplog.text
+
+
+def test_brier_given_a_client_asks_through_it(monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("the module-level httpx.post was used instead of the client")
+
+    monkeypatch.setattr(gate_module.httpx, "post", refuse)
+    handler, calls = _answering(0.9)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        decision = BrierGate("http://brier.test", client=client).admits(QUESTION, _passages(0.6))
+
+    assert decision.admitted is True
+    assert calls == ["passage 1"]
+
+
+def test_the_client_does_not_take_part_in_comparing_gates():
+    with httpx.Client() as client:
+        assert BrierGate("http://brier.test", client=client) == BrierGate("http://brier.test")
