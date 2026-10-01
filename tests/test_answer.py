@@ -4,7 +4,7 @@ from edgar_rag.answer import ABSTAINED_MESSAGE, answer_question, build_prompt
 from edgar_rag.chunking import Chunk
 from edgar_rag.gate import CosineGate
 from edgar_rag.index import ScoredChunk
-from tests.fakes import FakeEmbedder, FakeGenerator
+from tests.fakes import FakeEmbedder, FakeGenerator, FixedNonce
 
 ON_TOPIC = "what does the company design?"
 OFF_TOPIC = "who won the league in 1998?"
@@ -91,10 +91,16 @@ def test_abstains_before_generating_when_retrieval_is_weak(index):
 
 
 def test_abstains_when_the_model_says_the_filing_does_not_cover_it(index):
-    generator = FakeGenerator("NOT IN THE FILING")
+    generator = FakeGenerator("REFUSE-0badc0de")
 
     answer = answer_question(
-        ON_TOPIC, index, FakeEmbedder(TABLE), generator, CosineGate(0.5), top_k=2
+        ON_TOPIC,
+        index,
+        FakeEmbedder(TABLE),
+        generator,
+        CosineGate(0.5),
+        top_k=2,
+        nonce=FixedNonce("0badc0de"),
     )
 
     assert answer.abstained is True
@@ -130,8 +136,8 @@ def test_passage_text_cannot_fabricate_a_citation_or_force_a_refusal():
         score=0.9,
     )
 
-    prompt = build_prompt("what does it design?", (hostile,))
-    block = prompt.split("<passages>")[1].split("</passages>")[0]
+    prompt = build_prompt("what does it design?", (hostile,), "0badc0de")
+    block = prompt.split("<passages-0badc0de>")[1].split("</passages-0badc0de>")[0]
 
     assert "[9]" not in block, "a passage could fabricate a citation"
     assert "(9)" in block
@@ -140,7 +146,8 @@ def test_passage_text_cannot_fabricate_a_citation_or_force_a_refusal():
 
 
 def test_the_prompt_labels_the_passages_as_untrusted_data(index):
-    prompt = build_prompt("what does it design?", ())
+    prompt = build_prompt("what does it design?", (), "0badc0de")
 
     assert "untrusted document content" in prompt
-    assert "<passages>" in prompt
+    assert "<passages-0badc0de>" in prompt
+    assert "reply with exactly REFUSE-0badc0de and nothing else" in prompt
