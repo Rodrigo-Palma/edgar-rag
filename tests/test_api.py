@@ -1,6 +1,11 @@
+import logging
+
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
 
+import edgar_rag.gate as gate_module
 from edgar_rag.api import (
     app,
     provide_embedder,
@@ -11,7 +16,7 @@ from edgar_rag.api import (
 )
 from edgar_rag.config import Settings
 from edgar_rag.embeddings import ModelError
-from edgar_rag.gate import BrierGate, CosineGate
+from edgar_rag.gate import BrierGate, CosineGate, GateError
 from tests.fakes import FakeEmbedder, FakeGenerator
 
 ON_TOPIC = "what does the company design?"
@@ -95,22 +100,83 @@ def test_ask_rejects_inputs_just_outside_the_limits(client, body):
     assert client.post("/ask", json=body).status_code == 422
 
 
-def test_ask_reports_a_model_failure_as_a_bad_gateway(index):
-    class BrokenGenerator:
-        def generate(self, prompt: str) -> str:
-            raise ModelError("ollama is not running")
+def _assert_no_topology(text: str) -> None:
+    """Nothing a client could use to map the machines behind the service."""
+    for leak in ("http://", "https://", "localhost", "11434", "8100", "Error"):
+        assert leak not in text, f"{leak!r} leaked into {text!r}"
 
+
+def _ask_with(index, overrides: dict) -> Response:
     app.dependency_overrides = {
         provide_settings: lambda: _settings(),
         provide_index: lambda: index,
         provide_embedder: lambda: FakeEmbedder(TABLE),
-        provide_generator: lambda: BrokenGenerator(),
+        provide_generator: lambda: FakeGenerator("The Company designs phones [1]."),
+        **overrides,
     }
-    response = TestClient(app).post("/ask", json={"question": ON_TOPIC, "top_k": 2})
-    app.dependency_overrides = {}
+    try:
+        return TestClient(app).post("/ask", json={"question": ON_TOPIC, "top_k": 2})
+    finally:
+        app.dependency_overrides = {}
+
+
+def test_ask_reports_a_model_failure_as_a_bad_gateway_without_its_url(index, caplog):
+    """Adversarial case 15: the detail is generic, the log keeps what failed."""
+
+    class BrokenGenerator:
+        def generate(self, prompt: str) -> str:
+            raise ModelError(
+                "http://localhost:11434/api/generate did not answer: ConnectError: refused"
+            )
+
+    with caplog.at_level(logging.ERROR, logger="edgar_rag.api"):
+        response = _ask_with(index, {provide_generator: lambda: BrokenGenerator()})
 
     assert response.status_code == 502
-    assert "ollama is not running" in response.json()["detail"]
+    _assert_no_topology(response.text)
+    assert "http://localhost:11434/api/generate" in caplog.text
+
+
+def test_an_embedder_failure_is_a_bad_gateway_too(index):
+    class BrokenEmbedder:
+        def embed(self, texts):
+            raise ModelError("http://localhost:11434/api/embed did not answer")
+
+    response = _ask_with(index, {provide_embedder: lambda: BrokenEmbedder()})
+
+    assert response.status_code == 502
+    _assert_no_topology(response.text)
+
+
+def test_a_gate_that_cannot_reach_its_model_is_a_bad_gateway_not_a_crash(index, caplog):
+    """A ``GateError`` used to escape as a 500."""
+
+    class UnreachableGate:
+        def admits(self, question, passages):
+            raise GateError("http://localhost:8100 did not answer: ConnectError")
+
+    with caplog.at_level(logging.ERROR, logger="edgar_rag.api"):
+        response = _ask_with(index, {provide_gate: lambda: UnreachableGate()})
+
+    assert response.status_code == 502
+    _assert_no_topology(response.text)
+    assert "http://localhost:8100" in caplog.text
+
+
+def test_a_degraded_brier_answer_tells_the_client_nothing_about_the_brier_host(index, monkeypatch):
+    """Adversarial case 14, end to end: the gate reason is part of the response."""
+
+    def refuse(url, json, timeout):
+        raise httpx.ConnectError("[Errno 61] Connection refused")
+
+    monkeypatch.setattr(gate_module.httpx, "post", refuse)
+    degraded_gate = BrierGate("http://localhost:8100", fallback=CosineGate(0.5))
+
+    response = _ask_with(index, {provide_gate: lambda: degraded_gate})
+
+    assert response.status_code == 200
+    assert "relevance model unavailable" in response.json()["reason"]
+    _assert_no_topology(response.text)
 
 
 def test_health_says_which_filing_is_indexed(index, tmp_path):
@@ -140,6 +206,8 @@ def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
 
     assert response.status_code == 503
     assert "ingest" in response.json()["detail"]
+    # Adversarial case 16: the configured path stays on the server
+    assert str(tmp_path) not in response.text
 
 
 def test_the_gate_is_cosine_only_while_no_brier_url_is_configured():

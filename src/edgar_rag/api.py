@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -19,7 +19,7 @@ from edgar_rag.embeddings import (
     OllamaEmbedder,
     OllamaGenerator,
 )
-from edgar_rag.gate import BrierGate, CosineGate, RelevanceGate
+from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
 from edgar_rag.index import FilingIndex
 
 logger = logging.getLogger(__name__)
@@ -34,11 +34,38 @@ class AskRequest(BaseModel):
     top_k: int = Field(default=4, ge=1, le=10)
 
 
+class IndexUnavailable(RuntimeError):
+    """Raised when there is no index to answer from."""
+
+
+# Failures are reported to the client in these words only. What actually
+# failed (a URL, a local path, an exception) is logged, because the client is
+# not the operator and has no use for the topology behind the service.
 @app.exception_handler(ValueError)
 def reject_invalid_input(request: Request, error: ValueError) -> JSONResponse:
     """The core signals a question it cannot use with ``ValueError``: a client error."""
     logger.warning("rejected %s %s: %s", request.method, request.url.path, error)
     return JSONResponse(status_code=422, content={"detail": "the question could not be used"})
+
+
+@app.exception_handler(ModelError)
+def report_model_failure(request: Request, error: ModelError) -> JSONResponse:
+    logger.error("model backend failed on %s", request.url.path, exc_info=error)
+    return JSONResponse(status_code=502, content={"detail": "model backend unavailable"})
+
+
+@app.exception_handler(GateError)
+def report_gate_failure(request: Request, error: GateError) -> JSONResponse:
+    logger.error("relevance gate failed on %s", request.url.path, exc_info=error)
+    return JSONResponse(status_code=502, content={"detail": "relevance model unavailable"})
+
+
+@app.exception_handler(IndexUnavailable)
+def report_missing_index(request: Request, error: IndexUnavailable) -> JSONResponse:
+    logger.error("no index to answer from on %s", request.url.path, exc_info=error)
+    return JSONResponse(
+        status_code=503, content={"detail": "no index loaded; run the ingest first"}
+    )
 
 
 def provide_settings() -> Settings:
@@ -53,7 +80,7 @@ def provide_index(settings: SettingsDep) -> FilingIndex:
     try:
         return FilingIndex.load(Path(settings.index_dir))
     except FileNotFoundError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        raise IndexUnavailable(str(error)) from error
 
 
 def provide_embedder(settings: SettingsDep) -> Embedder:
@@ -94,16 +121,12 @@ def ask(
     generator: Annotated[Generator, Depends(provide_generator)],
     gate: Annotated[RelevanceGate, Depends(provide_gate)],
 ) -> dict[str, object]:
-    try:
-        answer = answer_question(
-            question=request.question,
-            index=index,
-            embedder=embedder,
-            generator=generator,
-            gate=gate,
-            top_k=request.top_k,
-        )
-    except ModelError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-
+    answer = answer_question(
+        question=request.question,
+        index=index,
+        embedder=embedder,
+        generator=generator,
+        gate=gate,
+        top_k=request.top_k,
+    )
     return {**asdict(answer), "source": index.source}
