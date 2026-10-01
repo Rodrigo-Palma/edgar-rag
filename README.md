@@ -167,30 +167,72 @@ curl -s localhost:8000/ask -H 'content-type: application/json' \
   -d '{"question": "What does the company identify as its principal competitive factors?"}'
 ```
 
-An answer:
+An answer, as the service returned it for Apple's 10-K (long strings trimmed
+to `...`, nothing else changed):
 
 ```json
 {
-  "answer": "The company competes on price, product features, performance [1] ...",
-  "citations": [{"marker": 1, "item": "Item 1", "quote": "...", "score": 0.70}],
-  "abstained": false
+  "question": "What does the company identify as its principal competitive factors?",
+  "text": "The company identifies the following principal competitive factors: ... maintain a competitive advantage [1]. ... aggressive pricing and low cost structures ... [2]. ...",
+  "citations": [
+    {
+      "marker": 1,
+      "item": "Item 1A",
+      "title": "Risk Factors",
+      "quote": "on the Company's competitive advantage and materially adversely affect its business, ...",
+      "score": 0.6804
+    }
+  ],
+  "abstained": false,
+  "reason": null,
+  "detail": "best passage scored 0.680",
+  "retrieval_score": 0.6804,
+  "gate_score": 0.6804,
+  "degraded": false,
+  "source": {
+    "company": "Apple Inc.",
+    "form": "10-K",
+    "filing_date": "2025-10-31",
+    "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+  }
 }
 ```
 
-An abstention says why, and the reason is the useful field:
+An abstention has no `text`, and says which check withheld the answer:
 
 ```json
 {
-  "answer": null,
+  "question": "Who won the 1998 World Cup?",
+  "text": null,
+  "citations": [],
   "abstained": true,
-  "reason": "the retrieved passages do not address the question",
-  "confidence": 0.046,
-  "degraded": false
+  "reason": "gate_rejected",
+  "detail": "No passage in this filing is close enough to the question, so the model was not asked. (best passage scored 0.405, below the 0.55 threshold)",
+  "retrieval_score": 0.4051,
+  "gate_score": 0.4051,
+  "degraded": false,
+  "source": {
+    "company": "Apple Inc.",
+    "form": "10-K",
+    "filing_date": "2025-10-31",
+    "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+  }
 }
 ```
 
-`degraded` is true when the brier service was unreachable and cosine answered
-in its place, so a fallback is never reported as a model decision.
+`reason` is one of `gate_rejected`, `out_of_period`, `model_declined`,
+`no_valid_citation`, `unsupported_claim` or `out_of_scope`, and is `null` on an
+answer. Today the pipeline emits the first, third and fourth; the others are
+reserved for the period guard, the citation support check and multi-filing
+scope, so adding them does not change the response. `gate_score` is the gate's
+own confidence: cosine similarity for the cosine gate, a probability for the
+model gate.
+
+`degraded` is true when the gate decided on part of its evidence: the brier
+service was unreachable and cosine answered in its place, or it could not judge
+some of the passages. A fallback is never reported as a model decision. The
+full schema is served at `/openapi.json`, and `tests/test_readme_contract.py`
+fails if the examples above stop matching a real response.
 
 ## Layout
 
