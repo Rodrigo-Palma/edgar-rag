@@ -48,7 +48,7 @@ def _example(*, abstained: bool) -> dict[str, object]:
 
 def _served(index, *, min_score: float) -> dict[str, object]:
     app.dependency_overrides = {
-        provide_settings: lambda: Settings(edgar_user_agent="Test Runner test@example.com"),
+        provide_settings: lambda: Settings(edgar_user_agent="Test Runner tests@ledgerworks.io"),
         provide_index: lambda: index,
         provide_embedder: lambda: FakeEmbedder({QUESTION: [1.0, 0.0]}),
         provide_generator: lambda: FakeGenerator("The Company designs phones [1]."),

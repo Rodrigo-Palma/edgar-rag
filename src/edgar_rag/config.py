@@ -2,8 +2,10 @@
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from edgar_rag.edgar.user_agent import validate_user_agent
 
 
 class Settings(BaseSettings):
@@ -11,12 +13,13 @@ class Settings(BaseSettings):
 
     ``edgar_user_agent`` has no default on purpose. The SEC rejects automated
     requests that do not identify their sender, and a shared placeholder would
-    get this project rate limited for everyone using it.
+    get this project rate limited for everyone using it, so the placeholder in
+    ``.env.example`` is refused here rather than by the SEC.
     """
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    edgar_user_agent: str = Field(min_length=5)
+    edgar_user_agent: str
     ollama_base_url: str = "http://localhost:11434"
     embedding_model: str = "nomic-embed-text"
     generation_model: str = "qwen3:32b"
@@ -28,6 +31,11 @@ class Settings(BaseSettings):
     # cosine gate stays on as the fallback if that service is unreachable.
     brier_url: str = ""
     brier_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+
+    @field_validator("edgar_user_agent")
+    @classmethod
+    def _declares_a_sender(cls, user_agent: str) -> str:
+        return validate_user_agent(user_agent)
 
 
 @lru_cache

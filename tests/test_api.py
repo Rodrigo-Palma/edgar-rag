@@ -25,7 +25,7 @@ TABLE = {ON_TOPIC: [1.0, 0.0]}
 
 def _settings(**overrides) -> Settings:
     base = {
-        "edgar_user_agent": "Test Runner test@example.com",
+        "edgar_user_agent": "Test Runner tests@ledgerworks.io",
         "min_retrieval_score": 0.5,
         "index_dir": "unused",
     }
@@ -211,14 +211,14 @@ def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
 
 
 def test_the_gate_is_cosine_only_while_no_brier_url_is_configured():
-    settings = Settings(edgar_user_agent="tester test@example.com", brier_url="")
+    settings = Settings(edgar_user_agent="Test Runner tests@ledgerworks.io", brier_url="")
 
     assert isinstance(provide_gate(settings), CosineGate)
 
 
 def test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it():
     settings = Settings(
-        edgar_user_agent="tester test@example.com",
+        edgar_user_agent="Test Runner tests@ledgerworks.io",
         brier_url="http://brier.test",
         brier_min_confidence=0.8,
         min_retrieval_score=0.4,
