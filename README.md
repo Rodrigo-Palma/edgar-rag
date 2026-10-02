@@ -241,9 +241,11 @@ unanswerable, 20 companies):
 | brier | 0.732 [0.713, 0.755] | 55.7% | 88.1% |
 | period guard (a rule, no score) | n/a | 75.0% | 100.0% |
 
-Risk against coverage, end to end: area under the curve 0.418 for cosine and
-0.372 for brier, admitting in decreasing score order; the report has the curve
-at four coverages. It is not part of the brier rule.
+Risk against coverage, end to end, admitting in decreasing score order: the
+area under the risk-coverage curve (AURC, lower is better) is 0.372 for brier
+against 0.418 for cosine, so on this view brier makes fewer errors at every
+coverage the report prints (four). It is exploratory and not part of the brier
+rule.
 
 Narrative questions, written by hand and never pooled: the correct decision
 (answer when answerable, abstain when not) under arm A on 36/40 = 90.0%
