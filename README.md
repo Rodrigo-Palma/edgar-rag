@@ -185,7 +185,7 @@ abstains with `out_of_scope` before anything runs.
 | The refusal token is drawn per request, and only that exact token is a refusal | [`test_each_request_draws_a_fresh_nonce`](tests/test_injection.py), [`test_only_the_exact_token_is_a_refusal`](tests/test_injection.py) |
 | Filing text is untrusted: it cannot close the passages block, open a turn, fake a citation or force a refusal | [`test_a_nested_closing_tag_cannot_close_the_block`](tests/test_injection.py), [`test_a_passage_cannot_open_a_new_turn`](tests/test_injection.py), [`test_no_citation_marker_survives_in_a_passage`](tests/test_injection.py), [`test_the_refusal_phrase_is_removed_in_any_spelling`](tests/test_injection.py) |
 | A sentence with a figure, or a long one, cites a retrieved passage, or the answer abstains with `no_valid_citation` | [`test_a_sentence_with_a_figure_and_no_marker_abstains`](tests/test_citation_check.py), [`test_a_long_sentence_with_no_marker_abstains`](tests/test_citation_check.py) |
-| Every amount in an answer appears in the passage it cites, at the precision shown, or the answer abstains with `unsupported_claim` | [`test_a_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_an_injected_figure_cited_to_a_legitimate_passage_abstains`](tests/test_citation_check.py) |
+| Every amount written in digits in a cited sentence matches a number of a passage it cites, or of that passage's item label, at the precision shown (at any scale from ones to billions when either number has no scale word), or the answer abstains with `unsupported_claim`; an amount written in words is not checked | [`test_a_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_an_injected_figure_cited_to_a_legitimate_passage_abstains`](tests/test_citation_check.py) |
 | A search never returns a passage of another filing | [`test_a_search_never_returns_a_passage_of_another_filing`](tests/test_corpus_index.py), [`test_a_question_is_never_answered_from_another_company_s_filing`](tests/test_answerer.py) |
 | The service refuses an index built by another embedder, or a shard changed after it was written | [`test_the_service_refuses_to_start_on_an_index_from_another_embedder`](tests/test_api.py), [`test_the_service_refuses_to_start_on_a_shard_that_changed`](tests/test_api.py) |
 | A gate that decided on part of its evidence is reported as `degraded`, up to the HTTP response | [`test_a_degraded_gate_is_reported_on_an_answer`](tests/test_answer_contract.py), [`test_a_partly_judged_refusal_reaches_the_client_as_degraded`](tests/test_api.py) |
@@ -445,6 +445,15 @@ the index only through the ports in `domain.py`. `make imports` enforces both.
   F row above was measured at the cross-fitted thresholds
   ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
 - Local only: no hosted instance, no authentication, no rate limit.
+- The citation check is weaker than "the cited passage states the figure". Any
+  number the passage shows backs a figure with the same digits, including the
+  item label and references to notes or pages: against a passage labelled
+  `Item 7` that says `See Note 3 on page 21`, the answers `$7 billion`, `7%`,
+  `$3.0 billion` and `$21 million` all pass. A figure in words
+  (`ninety billion dollars`) is not checked at all. How often this happened in
+  the v1 run was not measured; the fix and the measurement are planned for v1.1
+  ([issue #10](https://github.com/Rodrigo-Palma/edgar-rag/issues/10),
+  [issue #13](https://github.com/Rodrigo-Palma/edgar-rag/issues/13)).
 
 ## License
 
