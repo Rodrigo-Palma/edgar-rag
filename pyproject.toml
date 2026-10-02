@@ -102,10 +102,14 @@ forbidden_modules = [
 name = "Evaluation statistics are pure: no I/O layer, model or service"
 type = "forbidden"
 source_modules = [
+    "edgar_rag.eval.arms",
     "edgar_rag.eval.bootstrap",
     "edgar_rag.eval.metrics",
     "edgar_rag.eval.numeric",
     "edgar_rag.eval.power",
+    "edgar_rag.eval.records",
+    "edgar_rag.eval.report",
+    "edgar_rag.eval.summary",
     "edgar_rag.amounts",
 ]
 forbidden_modules = [
