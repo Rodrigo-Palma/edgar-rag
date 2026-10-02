@@ -102,6 +102,7 @@ jobs:
       - run: uv sync --locked
       # Reports are built from the frozen runs' records, which are plain git.
       - name: rebuild docs/eval from the frozen runs
+        shell: bash
         run: |
           make eval | tee "$RUNNER_TEMP/eval.out"
           if grep -q '^no frozen run' "$RUNNER_TEMP/eval.out"; then
