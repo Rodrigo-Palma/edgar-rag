@@ -290,7 +290,8 @@ the generation. The question itself is not logged. `/health` reports the
 indexed filings, a fingerprint of the index and whether Ollama answers.
 
 There is no authentication and no rate limit, so the service binds to
-`127.0.0.1` by default.
+`127.0.0.1` by default and logs a warning when `EDGAR_RAG_HOST` is not a
+loopback address.
 
 ## What failed and why
 

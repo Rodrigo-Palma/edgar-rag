@@ -6,6 +6,8 @@ EDGAR and does not ask for a User-Agent. Every variable carries the
 ``EDGAR_RAG_`` prefix, so ``EDGAR_RAG_INDEX_DIR`` sets ``index_dir``.
 """
 
+import ipaddress
+import logging
 from pathlib import Path
 from typing import Literal
 
@@ -13,6 +15,8 @@ from pydantic import Field, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from edgar_rag.edgar.user_agent import validate_user_agent
+
+logger = logging.getLogger(__name__)
 
 LOCAL_OLLAMA = HttpUrl("http://localhost:11434")
 
@@ -83,6 +87,27 @@ class ServiceSettings(_SharedSettings):
 
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
+
+    @field_validator("host")
+    @classmethod
+    def _warn_beyond_loopback(cls, host: str) -> str:
+        """Allowed, because a container has to listen on every interface, but never silent."""
+        if not _is_loopback(host):
+            logger.warning(
+                "EDGAR_RAG_HOST=%s is not a loopback address: the service has no "
+                "authentication and no rate limit, so anyone who can reach it can use it",
+                host,
+            )
+        return host
+
+
+def _is_loopback(host: str) -> bool:
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class IngestSettings(_SharedSettings):

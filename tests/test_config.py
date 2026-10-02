@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,25 @@ def test_the_service_starts_without_an_edgar_user_agent():
 
 def test_the_service_binds_to_the_local_machine_by_default():
     assert ServiceSettings().host == "127.0.0.1"
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.10", "::", "edgar.example.com"])
+def test_a_host_beyond_loopback_is_warned_about(host, caplog):
+    """No authentication and no rate limit: binding beyond loopback is allowed, never silent."""
+    with caplog.at_level(logging.WARNING, logger="edgar_rag.config"):
+        ServiceSettings(host=host)
+
+    assert [record.levelno for record in caplog.records] == [logging.WARNING]
+    assert f"EDGAR_RAG_HOST={host}" in caplog.text
+    assert "no authentication" in caplog.text
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "::1", "localhost", "LOCALHOST"])
+def test_a_loopback_host_is_not_warned_about(host, caplog):
+    with caplog.at_level(logging.WARNING, logger="edgar_rag.config"):
+        ServiceSettings(host=host)
+
+    assert caplog.records == []
 
 
 def test_the_service_limits_generations_and_request_time_by_default():
