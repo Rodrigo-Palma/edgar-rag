@@ -4,17 +4,14 @@
 # has the GPU (see compose.yaml). The index is not baked in either; it is
 # mounted read-only at /data/index, so one image serves any index.
 #
-# Both base images are pinned by digest. To move to a newer patch release, run
-# `docker buildx imagetools inspect <image>:<tag>` and update tag and digest
-# together.
+# Both base images are pinned by digest, written out in each FROM rather than
+# through an ARG so that Dependabot (docker ecosystem) can read and bump them.
+# The python image appears twice; the two lines move together.
 
-ARG PYTHON_IMAGE=python:3.13-slim@sha256:8296499feed1c18bd8064c279d45e2a1b4b6be586f8b9e16dcf2aaf843480d88
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.10.10@sha256:cbe0a44ba994e327b8fe7ed72beef1aaa7d2c4c795fd406d1dbf328bacb2f1c5
-
-FROM ${UV_IMAGE} AS uv
+FROM ghcr.io/astral-sh/uv:0.10.10@sha256:cbe0a44ba994e327b8fe7ed72beef1aaa7d2c4c795fd406d1dbf328bacb2f1c5 AS uv
 
 # --- build: resolve nothing, install exactly what uv.lock pins ---------------
-FROM ${PYTHON_IMAGE} AS build
+FROM python:3.13-slim@sha256:8296499feed1c18bd8064c279d45e2a1b4b6be586f8b9e16dcf2aaf843480d88 AS build
 
 COPY --from=uv /uv /usr/local/bin/uv
 
@@ -36,7 +33,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
 # --- runtime: the virtual environment and nothing that built it --------------
-FROM ${PYTHON_IMAGE} AS runtime
+FROM python:3.13-slim@sha256:8296499feed1c18bd8064c279d45e2a1b4b6be586f8b9e16dcf2aaf843480d88 AS runtime
 
 RUN groupadd --system --gid 10001 edgar \
     && useradd --system --uid 10001 --gid edgar --no-create-home --shell /usr/sbin/nologin edgar
