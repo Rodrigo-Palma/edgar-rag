@@ -262,6 +262,10 @@ class Answer:
     trace: Trace
 
 
+class NotRecorded(LookupError):
+    """Raised by a recorded model, or a replayed service, asked for what was never recorded."""
+
+
 class Embedder(Protocol):
     def embed(self, texts: Sequence[str]) -> NDArray[np.float32]: ...
 

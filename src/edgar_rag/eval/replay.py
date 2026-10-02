@@ -36,21 +36,24 @@ import httpx
 import numpy as np
 from numpy.typing import NDArray
 
-from edgar_rag.domain import Embedder, EmbedderSpec, Generation, Generator
+from edgar_rag.domain import Embedder, EmbedderSpec, Generation, Generator, NotRecorded
 from edgar_rag.lfs import is_pointer, pointer_message
+from edgar_rag.models import GENERATION_OPTIONS
 
 META_FILE = "meta.json"
 EMBED = "embed"
 GENERATE = "generate"
 BRIER = "brier"
 KINDS = (EMBED, GENERATE, BRIER)
+GENERATION_KEY_OPTIONS: dict[str, object] = {**GENERATION_OPTIONS, "think": False}
+"""The generation options a tape is keyed by: those sent to Ollama, thinking off."""
 RE_RECORD = (
     "re-record locally: `edgar-rag eval run --mode record` with Ollama running "
     "(and EDGAR_RAG_BRIER_URL for brier), then commit the tape"
 )
 
 
-class TapeMiss(LookupError):
+class TapeMiss(NotRecorded):
     """Raised when a replay is asked for a call the tape never recorded."""
 
 
