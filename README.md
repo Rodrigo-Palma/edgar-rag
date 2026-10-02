@@ -260,22 +260,29 @@ default. Both are needed before it listens anywhere else.
 
 | Path | What lives there |
 |---|---|
-| `src/edgar_rag/edgar/` | EDGAR client and the 10-K parser |
-| `src/edgar_rag/chunking.py` | sections into passages, cut on sentence boundaries |
-| `src/edgar_rag/models.py` | Ollama embedding and generation, lower-cased |
-| `src/edgar_rag/index.py` | vector index, cosine search, disk format |
-| `src/edgar_rag/gate.py` | the relevance gate: cosine, model, and the fallback |
-| `src/edgar_rag/domain.py` | the values the pipeline passes around, and its ports |
-| `src/edgar_rag/prompt.py` | the generation prompt and the untrusted-text guard |
-| `src/edgar_rag/citations.py` | which passages an answer cites, and the quote shown |
-| `src/edgar_rag/answer.py` | prompt, citation checking, abstention |
+| `src/edgar_rag/cli.py` | the `edgar-rag` command: `ingest`, `serve`, `eval power` |
 | `src/edgar_rag/service/` | the service: composition at startup, limits, the JSON contract, error mapping |
-| `src/edgar_rag/telemetry.py` | per-stage timing and the one JSON line per request |
+| `src/edgar_rag/eval/` | evaluation statistics: metrics, cluster bootstrap, numeric matching, power |
+| `src/edgar_rag/ingest.py` | a downloaded filing into an index: parse, chunk, embed in batches |
+| `src/edgar_rag/answer.py` | the `Answerer`: retrieve, gate, generate, check the citations, or abstain |
 | `src/edgar_rag/config.py` | settings for the service, the ingestion and the evaluation |
+| `src/edgar_rag/prompt.py` | the generation prompt and the untrusted-text guard |
+| `src/edgar_rag/citations.py` | which passages an answer cites, and the quote shown for each |
+| `src/edgar_rag/chunking.py` | sections into passages, cut on sentence boundaries |
+| `src/edgar_rag/gate.py` | the relevance gate: cosine, model, and the fallback |
+| `src/edgar_rag/index.py` | vector index, cosine search, disk format |
+| `src/edgar_rag/models.py` | Ollama embedding and generation, lower-cased and pinned |
+| `src/edgar_rag/edgar/` | EDGAR client, XBRL facts and the 10-K parser |
+| `src/edgar_rag/telemetry.py` | per-stage timing and the one JSON line per request |
+| `src/edgar_rag/domain.py` | the values the pipeline passes around, and the ports it calls |
 
-65 tests, no network and no model in any of them: a fake embedder places a
-question next to a passage by construction, which is what makes the abstention
-path testable at all.
+The table runs top to bottom in import order: a module imports only from rows
+below its own layer, and the answering core reaches the models, the gate and
+the index only through the ports in `domain.py`. `make imports` enforces both.
+
+No test reaches the network or a model: a fake embedder places a question next
+to a passage by construction, which is what makes the abstention path testable
+at all.
 
 ## Not there yet
 
