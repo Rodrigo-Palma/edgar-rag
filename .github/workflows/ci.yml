@@ -101,7 +101,12 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       # Reports are built from the frozen runs' records, which are plain git.
-      - run: make eval
+      - name: rebuild docs/eval from the frozen runs
+        run: |
+          make eval | tee "$RUNNER_TEMP/eval.out"
+          if grep -q '^no frozen run' "$RUNNER_TEMP/eval.out"; then
+            echo "::notice title=report::no frozen run in eval/runs/ yet, so there is no report to reproduce until the headline round"
+          fi
       - name: docs/eval matches what the frozen runs produce
         run: |
           git status --porcelain docs/eval
