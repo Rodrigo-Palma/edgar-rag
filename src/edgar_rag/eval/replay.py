@@ -37,6 +37,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from edgar_rag.domain import Embedder, EmbedderSpec, Generation, Generator
+from edgar_rag.lfs import is_pointer, pointer_message
 
 META_FILE = "meta.json"
 EMBED = "embed"
@@ -73,7 +74,10 @@ class _Store:
     def read(cls, path: Path) -> "_Store":
         store = cls(path)
         if path.exists():
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            content = path.read_bytes()
+            if is_pointer(content):
+                raise ValueError(pointer_message(path))
+            for number, line in enumerate(content.decode("utf-8").splitlines(), 1):
                 if not line.strip():
                     continue
                 try:
