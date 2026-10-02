@@ -270,6 +270,38 @@ some of the passages. A fallback is never reported as a model decision. The
 full schema is served at `/openapi.json`, and `tests/test_readme_contract.py`
 fails if the examples above stop matching a real response.
 
+### In a container, with Ollama on the host
+
+The service runs in a container; the models stay in Ollama on the host, where
+the GPU is (a container on a Mac cannot reach Metal). Run `git lfs install`
+once before cloning: the index the CI evaluates against keeps its vectors in
+Git LFS, and a clone without it holds pointers instead of vectors.
+
+```bash
+uv run edgar-rag ingest --lock eval/filings.lock.json --split dev  # index on the host
+make up      # docker compose up: builds the image, waits until /health is ready
+curl -s localhost:8000/health
+make down
+```
+
+`make up` mounts `data/index` read-only at `/data/index`; point
+`EDGAR_RAG_INDEX` at another directory to serve that one instead. Inside the
+container the service reaches Ollama at `http://host.docker.internal:11434`,
+which Docker Desktop resolves to the host. On Linux, `compose.yaml` maps that
+name to the host gateway, and Ollama has to listen beyond loopback
+(`OLLAMA_HOST=0.0.0.0`). `EDGAR_RAG_GENERATION_MODEL` passes through, so
+`EDGAR_RAG_GENERATION_MODEL=qwen3:8b make up` serves the smaller model.
+
+The image holds the locked runtime dependencies and the package, nothing
+else: no index, no `.env`, no dev tools, and runs as an unprivileged user.
+Compose adds a read-only filesystem with every capability dropped. The service
+binds `0.0.0.0` inside the container and is published on the host's
+`127.0.0.1` only. Its healthcheck
+passes when `/health` reports an index loaded; Ollama being down shows in
+`ollama_reachable`, not as an unhealthy container. `make image` builds it
+alone and prints its size: 249 MB unpacked, 78 MB compressed. There is no
+hosted instance: the measured configuration needs a 32B model on a GPU.
+
 ## Operating it
 
 The service reads the index once at startup and shares one HTTP client across
