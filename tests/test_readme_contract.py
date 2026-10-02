@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from edgar_rag.api import create_app
 from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import AbstentionReason
 from edgar_rag.gate import CosineGate
+from edgar_rag.service.app import create_app
 from tests.fakes import fake_answerer
 
 README = Path(__file__).resolve().parents[1] / "README.md"

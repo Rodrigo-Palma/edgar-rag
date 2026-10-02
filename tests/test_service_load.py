@@ -14,10 +14,10 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import httpx
 from fastapi.testclient import TestClient
 
-from edgar_rag.api import create_app
 from edgar_rag.config import ServiceSettings
 from edgar_rag.gate import CosineGate
 from edgar_rag.index import FilingIndex
+from edgar_rag.service.app import create_app
 from tests.fakes import CITED_REPLY, ON_TOPIC, fake_answerer
 
 # Long enough that a passing run never comes near it, short enough that a

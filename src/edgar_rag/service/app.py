@@ -3,7 +3,7 @@
 ``create_app`` is the composition root. Its lifespan reads the index once,
 opens one HTTP client for every outbound call and closes it at shutdown;
 the endpoints only read what it put in ``app.state``. Run it with
-``python -m edgar_rag.api``.
+``python -m edgar_rag.service.app``.
 """
 
 import dataclasses
@@ -13,7 +13,6 @@ import threading
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import asdict
 from functools import partial
 from typing import Annotated
 
@@ -21,16 +20,22 @@ import anyio
 import httpx
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Request
-from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from fastapi.responses import Response
 
 from edgar_rag import __version__
 from edgar_rag.answer import Answerer
 from edgar_rag.config import ServiceSettings
-from edgar_rag.domain import DEFAULT_TOP_K, AbstentionReason, Answer, Generator, RelevanceGate
-from edgar_rag.gate import BrierGate, CosineGate, GateError
+from edgar_rag.domain import Answer, Generator, RelevanceGate
+from edgar_rag.gate import BrierGate, CosineGate
 from edgar_rag.index import FilingIndex
-from edgar_rag.models import ModelError, OllamaEmbedder, OllamaGenerator, OllamaProbe
+from edgar_rag.models import OllamaEmbedder, OllamaGenerator, OllamaProbe
+from edgar_rag.service.failures import (
+    IndexUnavailable,
+    RequestTimedOut,
+    ServiceBusy,
+    report_failures,
+)
+from edgar_rag.service.schemas import AskRequest, AskResponse
 from edgar_rag.telemetry import StageTimer, log_request, write_to_stderr
 
 logger = logging.getLogger(__name__)
@@ -38,69 +43,6 @@ logger = logging.getLogger(__name__)
 # The service answers from an index it loaded itself, and reports its size and
 # fingerprint, so it needs the concrete index behind the answerer.
 ServedAnswerer = Answerer[FilingIndex]
-
-# What a client turned away is told to wait before asking again: a fraction of
-# the twenty seconds a generation takes, so it does not come back to a full
-# service, nor wait for a slot that freed long ago.
-RETRY_AFTER_SECONDS = 5
-
-
-class AskRequest(BaseModel):
-    # Trimmed before the length check, so a question of only whitespace is
-    # rejected here instead of reaching the core.
-    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
-    top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=10)
-
-
-class CitationResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    marker: int = Field(description="The [n] in the answer text that points here.")
-    item: str
-    title: str
-    quote: str = Field(description="The window of the passage around what the question asks.")
-    score: float = Field(description="Cosine similarity of the passage to the question.")
-
-
-class AskResponse(BaseModel):
-    """What ``/ask`` returns, declared so the OpenAPI schema is the contract.
-
-    ``extra="forbid"`` makes a field added to ``Answer`` and not here fail the
-    request in tests, instead of reaching clients undocumented.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    question: str
-    text: str | None = Field(description="The answer, or null when the service abstained.")
-    citations: list[CitationResponse]
-    abstained: bool
-    reason: AbstentionReason | None = Field(
-        description="Which check withheld the answer; null when there is an answer."
-    )
-    detail: str = Field(description="The decision in words, for a person reading it.")
-    retrieval_score: float = Field(description="Cosine similarity of the closest passage.")
-    gate_score: float = Field(description="The relevance gate's confidence in its decision.")
-    degraded: bool = Field(
-        description="The gate decided on part of its evidence or on its fallback."
-    )
-    source: dict[str, str] = Field(description="The filing the passages come from.")
-
-    @classmethod
-    def of(cls, answer: Answer, source: dict[str, str]) -> "AskResponse":
-        return cls.model_validate({**asdict(answer), "source": source})
-
-
-class IndexUnavailable(RuntimeError):
-    """Raised when there is no index to answer from."""
-
-
-class ServiceBusy(RuntimeError):
-    """Raised when every generation slot is taken."""
-
-
-class RequestTimedOut(RuntimeError):
-    """Raised when a request outlives its time budget."""
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -215,58 +157,9 @@ def create_app(
 
     app = FastAPI(title="edgar-rag", version=__version__, lifespan=lifespan)
     app.middleware("http")(log_each_request)
-    _report_failures(app)
+    report_failures(app)
     app.include_router(router)
     return app
-
-
-# Failures are reported to the client in these words only. What actually
-# failed (a URL, a local path, an exception) is logged, because the client is
-# not the operator and has no use for the topology behind the service.
-def reject_invalid_input(request: Request, error: Exception) -> JSONResponse:
-    """The core signals a question it cannot use with ``ValueError``: a client error."""
-    logger.warning("rejected %s %s: %s", request.method, request.url.path, error)
-    return JSONResponse(status_code=422, content={"detail": "the question could not be used"})
-
-
-def report_model_failure(request: Request, error: Exception) -> JSONResponse:
-    logger.error("model backend failed on %s", request.url.path, exc_info=error)
-    return JSONResponse(status_code=502, content={"detail": "model backend unavailable"})
-
-
-def report_gate_failure(request: Request, error: Exception) -> JSONResponse:
-    logger.error("relevance gate failed on %s", request.url.path, exc_info=error)
-    return JSONResponse(status_code=502, content={"detail": "relevance model unavailable"})
-
-
-def report_missing_index(request: Request, error: Exception) -> JSONResponse:
-    logger.error("no index to answer from on %s", request.url.path, exc_info=error)
-    return JSONResponse(
-        status_code=503, content={"detail": "no index loaded; run the ingest first"}
-    )
-
-
-def report_busy(request: Request, error: Exception) -> JSONResponse:
-    logger.warning("turned away %s: %s", request.url.path, error)
-    return JSONResponse(
-        status_code=503,
-        content={"detail": "busy answering other questions; retry shortly"},
-        headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
-    )
-
-
-def report_timeout(request: Request, error: Exception) -> JSONResponse:
-    logger.error("gave up on %s: %s", request.url.path, error)
-    return JSONResponse(status_code=504, content={"detail": "the answer took too long"})
-
-
-def _report_failures(app: FastAPI) -> None:
-    app.add_exception_handler(ValueError, reject_invalid_input)
-    app.add_exception_handler(ModelError, report_model_failure)
-    app.add_exception_handler(GateError, report_gate_failure)
-    app.add_exception_handler(IndexUnavailable, report_missing_index)
-    app.add_exception_handler(ServiceBusy, report_busy)
-    app.add_exception_handler(RequestTimedOut, report_timeout)
 
 
 async def log_each_request(

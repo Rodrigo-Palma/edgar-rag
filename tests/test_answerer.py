@@ -1,9 +1,9 @@
 import pytest
 
 from edgar_rag.answer import Answerer
-from edgar_rag.api import AskRequest
 from edgar_rag.domain import DEFAULT_TOP_K
 from edgar_rag.gate import CosineGate
+from edgar_rag.service.schemas import AskRequest
 from edgar_rag.telemetry import StageTimer
 from tests.fakes import FakeEmbedder, FakeGate, FakeGenerator, FixedNonce
 

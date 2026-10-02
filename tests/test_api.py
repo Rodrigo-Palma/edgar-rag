@@ -6,11 +6,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from edgar_rag.api import build_gate, create_app, serve
 from edgar_rag.config import ServiceSettings
 from edgar_rag.gate import BrierGate, CosineGate, GateError
 from edgar_rag.index import FilingIndex
 from edgar_rag.models import ModelError
+from edgar_rag.service.app import build_gate, create_app, serve
 from tests.fakes import ON_TOPIC, fake_answerer
 
 
@@ -103,7 +103,7 @@ def test_ask_reports_a_model_failure_as_a_bad_gateway_without_its_url(index, cap
                 "http://localhost:11434/api/generate did not answer: ConnectError: refused"
             )
 
-    with caplog.at_level(logging.ERROR, logger="edgar_rag.api"):
+    with caplog.at_level(logging.ERROR, logger="edgar_rag.service"):
         response = _ask_with(index, generator=BrokenGenerator())
 
     assert response.status_code == 502
@@ -129,7 +129,7 @@ def test_a_gate_that_cannot_reach_its_model_is_a_bad_gateway_not_a_crash(index, 
         def admits(self, question, passages):
             raise GateError("http://localhost:8100 did not answer: ConnectError")
 
-    with caplog.at_level(logging.ERROR, logger="edgar_rag.api"):
+    with caplog.at_level(logging.ERROR, logger="edgar_rag.service"):
         response = _ask_with(index, gate=UnreachableGate())
 
     assert response.status_code == 502

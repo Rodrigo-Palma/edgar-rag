@@ -2,7 +2,7 @@ import tomllib
 from pathlib import Path
 
 from edgar_rag import __version__
-from edgar_rag.api import create_app
+from edgar_rag.service.app import create_app
 
 PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 

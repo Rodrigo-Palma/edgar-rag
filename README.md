@@ -159,7 +159,7 @@ cp .env.example .env        # the SEC requires a real contact in EDGAR_RAG_EDGAR
 ollama pull nomic-embed-text && ollama pull qwen3:32b
 
 uv run python scripts/ingest.py --cik 320193    # Apple's latest 10-K
-uv run python -m edgar_rag.api                   # serves on 127.0.0.1:8000
+uv run python -m edgar_rag.service.app           # serves on 127.0.0.1:8000
 ```
 
 ```bash
@@ -265,7 +265,7 @@ default. Both are needed before it listens anywhere else.
 | `src/edgar_rag/prompt.py` | the generation prompt and the untrusted-text guard |
 | `src/edgar_rag/citations.py` | which passages an answer cites, and the quote shown |
 | `src/edgar_rag/answer.py` | prompt, citation checking, abstention |
-| `src/edgar_rag/api.py` | the service: composition at startup, limits, error mapping |
+| `src/edgar_rag/service/` | the service: composition at startup, limits, the JSON contract, error mapping |
 | `src/edgar_rag/telemetry.py` | per-stage timing and the one JSON line per request |
 | `src/edgar_rag/config.py` | settings for the service, the ingestion and the evaluation |
 

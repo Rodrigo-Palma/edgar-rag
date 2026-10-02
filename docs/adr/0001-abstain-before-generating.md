@@ -36,7 +36,7 @@ model is never called.
 The gate is a `typing.Protocol`, `RelevanceGate`, taking the question and the
 retrieved passages and returning a `GateDecision(admitted, confidence, reason,
 degraded)`. The pipeline depends only on the protocol. `build_gate` in
-`src/edgar_rag/api.py` is the single place that picks an adapter: cosine alone
+`src/edgar_rag/service/app.py` is the single place that picks an adapter: cosine alone
 when `brier_url` is unset, otherwise `BrierGate` with `CosineGate` as fallback.
 
 A fallback is never reported as the primary judge: when `BrierGate` cannot reach

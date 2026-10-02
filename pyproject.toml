@@ -78,7 +78,7 @@ source_modules = [
     "edgar_rag.index",
     "edgar_rag.telemetry",
 ]
-forbidden_modules = ["edgar_rag.api"]
+forbidden_modules = ["edgar_rag.service"]
 
 [[tool.importlinter.contracts]]
 name = "Only the entry point reads configuration"
@@ -142,7 +142,7 @@ source_modules = [
 ]
 forbidden_modules = [
     "edgar_rag.answer",
-    "edgar_rag.api",
+    "edgar_rag.service",
     "edgar_rag.chunking",
     "edgar_rag.config",
     "edgar_rag.edgar",
