@@ -104,6 +104,24 @@ def test_the_years_reported_can_be_narrowed_to_the_balance_sheet_s_two():
     assert guard.admits("Assets at fiscal 2022 year end?", (), FISCAL_2024).admitted is False
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="known limitation: a year inside a proper noun reads as a period (README, Limitations)",
+)
+def test_a_year_that_names_a_plan_is_not_a_period():
+    """The year in "2021 Stock Plan" names a plan, not fiscal 2021; the guard reads a period.
+
+    It affects only the period+cosine gate. When the guard learns to tell the
+    two apart this test passes, strict xfail fails, and the marker comes off.
+    """
+    fiscal_2025 = replace(EXAMPLE, fiscal_year=2025)
+    question = (
+        "How many shares remained available under the 2021 Stock Plan at the end of fiscal 2025?"
+    )
+
+    assert PeriodGuard().admits(question, (), fiscal_2025).admitted is True
+
+
 @pytest.mark.parametrize("years", [0, -1])
 def test_a_filing_reports_at_least_its_own_year(years):
     with pytest.raises(ValueError, match="at least its own"):

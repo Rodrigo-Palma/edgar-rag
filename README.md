@@ -453,6 +453,12 @@ the index only through the ports in `domain.py`. `make imports` enforces both.
   F row above was measured at the cross-fitted thresholds
   ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
 - Local only: no hosted instance, no authentication, no rate limit.
+- The period guard reads any year a question names as the period asked
+  about, including one inside a proper noun: under `period+cosine`, a question
+  about the `2021 Stock Plan` at the end of fiscal 2025 is declined as
+  `out_of_period`. The default gate, `none`, does not run the guard.
+  [`test_a_year_that_names_a_plan_is_not_a_period`](tests/test_period.py)
+  records it as an expected failure.
 - The citation check is weaker than "the cited passage states the figure". Any
   number the passage shows backs a figure with the same digits, including the
   item label and references to notes or pages: against a passage labelled
