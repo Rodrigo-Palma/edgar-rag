@@ -234,6 +234,24 @@ some of the passages. A fallback is never reported as a model decision. The
 full schema is served at `/openapi.json`, and `tests/test_readme_contract.py`
 fails if the examples above stop matching a real response.
 
+## Operating it
+
+The service reads the index once at startup and shares one HTTP client across
+requests. At most `EDGAR_RAG_MAX_CONCURRENT_GENERATIONS` (2) generations run at
+once; a request that needs another gets `503` with `Retry-After` immediately
+rather than waiting in a queue, and a question the gate rejects is answered
+whatever the load. A request still running after
+`EDGAR_RAG_REQUEST_TIMEOUT_SECONDS` (90) gets `504`. `/health` reports the
+loaded filing, a fingerprint of the index and whether Ollama answers, probing
+it at most every 10 seconds.
+
+Every request writes one line of JSON to stderr with its status, total and
+per-stage seconds (`embed`, `search`, `gate`, `generate`), `reason` and
+`degraded`. The question itself is not logged.
+
+There is no authentication and no rate limit, so it binds to `127.0.0.1` by
+default. Both are needed before it listens anywhere else.
+
 ## Layout
 
 | Path | What lives there |
@@ -244,7 +262,9 @@ fails if the examples above stop matching a real response.
 | `src/edgar_rag/index.py` | vector index, cosine search, disk format |
 | `src/edgar_rag/gate.py` | the relevance gate: cosine, model, and the fallback |
 | `src/edgar_rag/answer.py` | prompt, citation checking, abstention |
-| `src/edgar_rag/api.py` | the service |
+| `src/edgar_rag/api.py` | the service: composition at startup, limits, error mapping |
+| `src/edgar_rag/telemetry.py` | per-stage timing and the one JSON line per request |
+| `src/edgar_rag/config.py` | settings for the service, the ingestion and the evaluation |
 
 65 tests, no network and no model in any of them: a fake embedder places a
 question next to a passage by construction, which is what makes the abstention
@@ -254,8 +274,8 @@ path testable at all.
 
 An eval gate in CI over a golden set built from XBRL `companyfacts` (the SEC
 publishes the numbers, so the labels can be generated rather than hand-written),
-cost and latency logging, a semantic cache, a drift monitor, and a deployed
-instance. Those are the point of the project. This is the vertical slice they
+token counts in the request log, a semantic cache, a drift monitor, and a
+deployed instance. Those are the point of the project. This is the vertical slice they
 attach to, and it is honest about which of its numbers are measurements and
 which are anecdotes.
 
