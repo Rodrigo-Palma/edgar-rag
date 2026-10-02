@@ -6,12 +6,16 @@ the endpoints only read what it put in ``app.state``. Run it with
 ``python -m edgar_rag.api``.
 """
 
+import dataclasses
 import logging
+import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from functools import partial
 from typing import Annotated
 
+import anyio
 import httpx
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Request
@@ -21,11 +25,16 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from edgar_rag import __version__
 from edgar_rag.answer import AbstentionReason, Answer, Answerer
 from edgar_rag.config import ServiceSettings
-from edgar_rag.embeddings import ModelError, OllamaEmbedder, OllamaGenerator
+from edgar_rag.embeddings import Generator, ModelError, OllamaEmbedder, OllamaGenerator
 from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
 from edgar_rag.index import FilingIndex
 
 logger = logging.getLogger(__name__)
+
+# What a client turned away is told to wait before asking again: a fraction of
+# the twenty seconds a generation takes, so it does not come back to a full
+# service, nor wait for a slot that freed long ago.
+RETRY_AFTER_SECONDS = 5
 
 
 class AskRequest(BaseModel):
@@ -76,6 +85,42 @@ class AskResponse(BaseModel):
 
 class IndexUnavailable(RuntimeError):
     """Raised when there is no index to answer from."""
+
+
+class ServiceBusy(RuntimeError):
+    """Raised when every generation slot is taken."""
+
+
+class RequestTimedOut(RuntimeError):
+    """Raised when a request outlives its time budget."""
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class GenerationSlots:
+    """A generator that runs at most as many generations as ``slots`` allows.
+
+    A generation holds the GPU for about twenty seconds, and requests waiting
+    for one each hold a worker thread, so a queue would let a handful of slow
+    questions stall the service. A request finding no free slot fails at once
+    with ``ServiceBusy``. Questions the gate rejects never get here, so they
+    are answered whatever the load.
+    """
+
+    generator: Generator
+    slots: threading.BoundedSemaphore
+
+    def generate(self, prompt: str) -> str:
+        if not self.slots.acquire(blocking=False):
+            raise ServiceBusy("every generation slot is taken")
+        try:
+            return self.generator.generate(prompt)
+        finally:
+            self.slots.release()
+
+
+def with_generation_limit(answerer: Answerer, limit: int) -> Answerer:
+    slots = GenerationSlots(answerer.generator, threading.BoundedSemaphore(limit))
+    return dataclasses.replace(answerer, generator=slots)
 
 
 def build_gate(settings: ServiceSettings, client: httpx.Client) -> RelevanceGate:
@@ -133,7 +178,11 @@ def create_app(
             app.state.settings = config
             app.state.http = client
             built = answerer if answerer is not None else build_answerer(config, client)
-            app.state.answerer = built
+            app.state.answerer = (
+                None
+                if built is None
+                else with_generation_limit(built, config.max_concurrent_generations)
+            )
             yield
 
     app = FastAPI(title="edgar-rag", version=__version__, lifespan=lifespan)
@@ -168,11 +217,27 @@ def report_missing_index(request: Request, error: Exception) -> JSONResponse:
     )
 
 
+def report_busy(request: Request, error: Exception) -> JSONResponse:
+    logger.warning("turned away %s: %s", request.url.path, error)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "busy answering other questions; retry shortly"},
+        headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
+    )
+
+
+def report_timeout(request: Request, error: Exception) -> JSONResponse:
+    logger.error("gave up on %s: %s", request.url.path, error)
+    return JSONResponse(status_code=504, content={"detail": "the answer took too long"})
+
+
 def _report_failures(app: FastAPI) -> None:
     app.add_exception_handler(ValueError, reject_invalid_input)
     app.add_exception_handler(ModelError, report_model_failure)
     app.add_exception_handler(GateError, report_gate_failure)
     app.add_exception_handler(IndexUnavailable, report_missing_index)
+    app.add_exception_handler(ServiceBusy, report_busy)
+    app.add_exception_handler(RequestTimedOut, report_timeout)
 
 
 def loaded_answerer(request: Request) -> Answerer:
@@ -199,10 +264,25 @@ def health(request: Request) -> dict[str, object]:
 
 
 @router.post("/ask", response_model=AskResponse)
-def ask(
-    question: AskRequest, answerer: Annotated[Answerer, Depends(loaded_answerer)]
+async def ask(
+    question: AskRequest,
+    request: Request,
+    answerer: Annotated[Answerer, Depends(loaded_answerer)],
 ) -> AskResponse:
-    answer = answerer.ask(question.question, top_k=question.top_k)
+    """Answer in a worker thread, giving up on it after the request's time budget.
+
+    The pipeline is synchronous, and a thread cannot be stopped from outside,
+    so a request past its budget is answered with 504 while its worker runs
+    on to the models' own timeouts. The worker keeps its generation slot
+    until then, which is what keeps abandoned work from piling up on the GPU.
+    """
+    budget = request.app.state.settings.request_timeout_seconds
+    work = partial(answerer.ask, question.question, top_k=question.top_k)
+    try:
+        with anyio.fail_after(budget):
+            answer = await anyio.to_thread.run_sync(work, abandon_on_cancel=True)
+    except TimeoutError as error:
+        raise RequestTimedOut(f"no answer within {budget} s") from error
     return AskResponse.of(answer, answerer.source)
 
 

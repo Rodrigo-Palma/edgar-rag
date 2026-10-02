@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Question answering over SEC filings that cites its sources and abstains when the evidence is thin"
 requires-python = ">=3.13"
 dependencies = [
+    "anyio>=4.1",
     "beautifulsoup4>=4.12",
     "fastapi>=0.115",
     "httpx>=0.27",
