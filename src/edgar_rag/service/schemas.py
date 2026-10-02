@@ -4,12 +4,16 @@
 ``tests/test_readme_contract.py`` holds the two together.
 """
 
-from dataclasses import asdict
+from dataclasses import fields
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from edgar_rag.domain import DEFAULT_TOP_K, AbstentionReason, Answer
+
+# What answering cost is for the operator: it goes to the request log, not to
+# a client that could use the timings to probe the service.
+NOT_RETURNED = frozenset({"trace"})
 
 
 class AskRequest(BaseModel):
@@ -33,7 +37,8 @@ class AskResponse(BaseModel):
     """What ``/ask`` returns, declared so the OpenAPI schema is the contract.
 
     ``extra="forbid"`` makes a field added to ``Answer`` and not here fail the
-    request in tests, instead of reaching clients undocumented.
+    request in tests, instead of reaching clients undocumented. The fields in
+    ``NOT_RETURNED`` are left out on purpose.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -55,4 +60,10 @@ class AskResponse(BaseModel):
 
     @classmethod
     def of(cls, answer: Answer, source: dict[str, str]) -> "AskResponse":
-        return cls.model_validate({**asdict(answer), "source": source})
+        returned = {
+            field.name: getattr(answer, field.name)
+            for field in fields(answer)
+            if field.name not in NOT_RETURNED
+        }
+        # from_attributes reads each Citation dataclass as a CitationResponse
+        return cls.model_validate({**returned, "source": source}, from_attributes=True)

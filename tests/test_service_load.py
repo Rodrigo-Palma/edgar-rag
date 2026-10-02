@@ -198,7 +198,9 @@ def test_every_request_is_logged_as_one_line_of_json(index, caplog):
     assert answered["reason"] is None
     assert answered["degraded"] is False
     assert answered["top_k"] == 2
-    assert {"prompt_tokens", "completion_tokens", "seconds"} <= set(answered)
+    assert answered["prompt_tokens"] > 0
+    assert answered["completion_tokens"] == len(CITED_REPLY.split())
+    assert "seconds" in answered
     assert rejected["status"] == 422
     assert rejected["stages"] == {}
     assert health["path"] == "/health"
@@ -214,6 +216,7 @@ def test_an_abstention_is_logged_with_its_reason_and_no_generation(index, caplog
     assert line["reason"] == "gate_rejected"
     assert line["abstained"] is True
     assert "generate" not in line["stages"]
+    assert (line["prompt_tokens"], line["completion_tokens"]) == (None, None)
 
 
 def test_a_request_turned_away_or_timed_out_is_still_logged(index, caplog):

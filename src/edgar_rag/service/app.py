@@ -184,6 +184,7 @@ async def log_each_request(
 def _request_fields(request: Request, status: int, seconds: float) -> dict[str, object]:
     stages: StageTimer | None = getattr(request.state, "stages", None)
     answer: Answer | None = getattr(request.state, "answer", None)
+    generation = answer.trace.generation if answer else None
     return {
         "method": request.method,
         "path": request.url.path,
@@ -196,9 +197,8 @@ def _request_fields(request: Request, status: int, seconds: float) -> dict[str, 
         "degraded": answer.degraded if answer else None,
         "retrieval_score": answer.retrieval_score if answer else None,
         "gate_score": answer.gate_score if answer else None,
-        # The generator does not report its token counts yet.
-        "prompt_tokens": None,
-        "completion_tokens": None,
+        "prompt_tokens": generation.prompt_tokens if generation else None,
+        "completion_tokens": generation.completion_tokens if generation else None,
     }
 
 

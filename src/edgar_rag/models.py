@@ -16,7 +16,7 @@ REQUEST_TIMEOUT_SECONDS = 120.0
 PROBE_TIMEOUT_SECONDS = 2.0
 PROBE_TTL_SECONDS = 10.0
 
-# Fixed so the same prompt gets the same answer: replay keys recorded
+# Fixed so the same prompt should get the same answer: replay keys recorded
 # generations on the prompt, and the protocol measures determinism on
 # repeated cases. num_ctx is set rather than left to the server, whose
 # default would silently truncate four passages and the instructions.

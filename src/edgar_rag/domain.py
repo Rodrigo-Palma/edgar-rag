@@ -113,34 +113,6 @@ class Citation:
 
 
 @dataclass(frozen=True, slots=True)
-class Answer:
-    """An answer with its citations, or the reason there is none.
-
-    ``text`` is ``None`` exactly when ``abstained`` is set, and then ``reason``
-    says which check withheld it. ``detail`` is the same story in words, for a
-    person: the message for the reason followed by what the gate found.
-    ``gate_score`` is the gate's own confidence, which is cosine similarity or
-    a probability depending on the gate, and ``degraded`` says the gate ran on
-    part of its evidence or on its fallback, which a caller must be able to
-    tell apart from a model decision.
-    """
-
-    question: str
-    text: str | None
-    citations: tuple[Citation, ...]
-    abstained: bool
-    reason: AbstentionReason | None
-    detail: str
-    retrieval_score: float
-    gate_score: float
-    degraded: bool
-
-
-class Embedder(Protocol):
-    def embed(self, texts: Sequence[str]) -> NDArray[np.float32]: ...
-
-
-@dataclass(frozen=True, slots=True)
 class Generation:
     """What the model wrote, and what writing it cost.
 
@@ -154,6 +126,49 @@ class Generation:
     prompt_tokens: int | None
     completion_tokens: int | None
     seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class Trace:
+    """What answering one question cost.
+
+    ``stages`` holds the seconds spent embedding, searching, gating and
+    generating. ``generation`` is ``None`` exactly when the model was not
+    asked, so a refusal by the model still reports the tokens it spent.
+    """
+
+    stages: Mapping[str, float]
+    generation: Generation | None
+
+
+@dataclass(frozen=True, slots=True)
+class Answer:
+    """An answer with its citations, or the reason there is none.
+
+    ``text`` is ``None`` exactly when ``abstained`` is set, and then ``reason``
+    says which check withheld it. ``detail`` is the same story in words, for a
+    person: the message for the reason followed by what the gate found.
+    ``gate_score`` is the gate's own confidence, which is cosine similarity or
+    a probability depending on the gate, and ``degraded`` says the gate ran on
+    part of its evidence or on its fallback, which a caller must be able to
+    tell apart from a model decision. ``trace`` is for whoever operates or
+    evaluates the service; it is logged, not returned to the client.
+    """
+
+    question: str
+    text: str | None
+    citations: tuple[Citation, ...]
+    abstained: bool
+    reason: AbstentionReason | None
+    detail: str
+    retrieval_score: float
+    gate_score: float
+    degraded: bool
+    trace: Trace
+
+
+class Embedder(Protocol):
+    def embed(self, texts: Sequence[str]) -> NDArray[np.float32]: ...
 
 
 class Generator(Protocol):

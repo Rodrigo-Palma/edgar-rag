@@ -77,3 +77,28 @@ def test_the_default_top_k_is_the_one_the_service_offers():
     """One number, read by the answerer and the HTTP schema alike."""
     assert Answerer.__dataclass_fields__["top_k"].default == DEFAULT_TOP_K
     assert AskRequest.model_fields["top_k"].default == DEFAULT_TOP_K
+
+
+def test_an_answer_carries_the_trace_of_what_it_cost(index):
+    answer = _answerer(index).ask(ON_TOPIC, top_k=2)
+
+    assert set(answer.trace.stages) == {"embed", "search", "gate", "generate"}
+    assert answer.trace.generation is not None
+    assert answer.trace.generation.completion_tokens == len(answer.text.split())
+    assert answer.trace.generation.prompt_tokens > 0
+
+
+def test_a_gate_rejection_traces_no_generation(index):
+    answer = _answerer(index).ask(OFF_TOPIC, top_k=2)
+
+    assert answer.trace.generation is None
+    assert "generate" not in answer.trace.stages
+
+
+def test_a_model_refusal_is_traced_with_the_generation_it_cost(index):
+    """A refusal still spent the tokens; the cost report must not hide it."""
+    answer = _answerer(index, reply="REFUSE-0badc0de").ask(ON_TOPIC, top_k=2)
+
+    assert answer.abstained is True
+    assert answer.trace.generation is not None
+    assert answer.trace.generation.completion_tokens == 1

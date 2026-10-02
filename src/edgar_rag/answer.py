@@ -1,6 +1,7 @@
 """Answer a question from a filing, with citations, or decline to answer."""
 
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from edgar_rag.citations import as_citations, markers_in
 from edgar_rag.domain import (
@@ -13,6 +14,7 @@ from edgar_rag.domain import (
     RelevanceGate,
     Retriever,
     ScoredChunk,
+    Trace,
     abstained_message,
 )
 from edgar_rag.prompt import NonceSource, build_prompt, draw, random_nonce, refusal_token
@@ -71,7 +73,10 @@ class Answerer[Index: Retriever]:
         with timer.measure("gate"):
             decision = self.gate.admits(question, passages)
         if not decision.admitted:
-            return _abstention(question, AbstentionReason.GATE_REJECTED, decision, best_score)
+            trace = Trace(stages=MappingProxyType(timer.seconds()), generation=None)
+            return _abstention(
+                question, AbstentionReason.GATE_REJECTED, decision, best_score, trace
+            )
         return self._generate(question, passages, decision, best_score, timer)
 
     def _retrieve(self, question: str, top_k: int, timer: StageTimer) -> tuple[ScoredChunk, ...]:
@@ -92,9 +97,13 @@ class Answerer[Index: Retriever]:
         drawn = draw(self.nonce)
         prompt = build_prompt(question, passages, drawn)
         with timer.measure("generate"):
-            generated = self.generator.generate(prompt).text
+            generation = self.generator.generate(prompt)
+        trace = Trace(stages=MappingProxyType(timer.seconds()), generation=generation)
+        generated = generation.text
         if generated.strip() == refusal_token(drawn):
-            return _abstention(question, AbstentionReason.MODEL_DECLINED, decision, best_score)
+            return _abstention(
+                question, AbstentionReason.MODEL_DECLINED, decision, best_score, trace
+            )
 
         cited = markers_in(generated, len(passages))
         if not cited:
@@ -102,7 +111,9 @@ class Answerer[Index: Retriever]:
             # asked for a marker on every factual sentence. Treating it as an
             # answer would hand the caller exactly the unverifiable output this
             # service exists to avoid.
-            return _abstention(question, AbstentionReason.NO_VALID_CITATION, decision, best_score)
+            return _abstention(
+                question, AbstentionReason.NO_VALID_CITATION, decision, best_score, trace
+            )
 
         return Answer(
             question=question,
@@ -114,11 +125,16 @@ class Answerer[Index: Retriever]:
             retrieval_score=best_score,
             gate_score=decision.confidence,
             degraded=decision.degraded,
+            trace=trace,
         )
 
 
 def _abstention(
-    question: str, reason: AbstentionReason, decision: GateDecision, retrieval_score: float
+    question: str,
+    reason: AbstentionReason,
+    decision: GateDecision,
+    retrieval_score: float,
+    trace: Trace,
 ) -> Answer:
     """Withhold the answer, keeping what the gate said even when it admitted.
 
@@ -135,4 +151,5 @@ def _abstention(
         retrieval_score=retrieval_score,
         gate_score=decision.confidence,
         degraded=decision.degraded,
+        trace=trace,
     )
