@@ -6,8 +6,8 @@
 # eval/ci/tape; both need `git lfs pull` in the clone.
 #
 # EDGAR_RAG_DEMO_VIEW=brief prints, per question, the outcome, the citation
-# and the stages the request's log line timed, instead of the full JSON; it is
-# the view docs/media/demo.tape records. The checks at the end run in both.
+# and the stages the request's log line timed (scripts/demo_brief.py), instead
+# of the full JSON. The checks at the end run in both views.
 set -euo pipefail
 
 port="${EDGAR_RAG_DEMO_PORT:-8077}"
@@ -46,54 +46,8 @@ decline=$(ask '{"cik": 320193, "fiscal_year": 2025, "question": "What cash divid
 if [ "$view" = full ]; then echo "$decline" | python3 -m json.tool; fi
 
 if [ "$view" = brief ]; then
-    python3 - "$port" "$log" "$answer" "$decline" <<'BRIEF'
-import json
-import sys
-import textwrap
-import time
-from pathlib import Path
-
-port, log, *bodies = sys.argv[1:]
-WIDTH = 104
-
-
-def logged_requests() -> list[dict]:
-    """The /ask lines of the service log, waiting briefly for the last one."""
-    for _ in range(20):
-        lines = Path(log).read_text("utf-8").splitlines()
-        asks = [json.loads(line) for line in lines if line.startswith('{"method":"POST","path":"/ask"')]
-        if len(asks) >= 2:
-            return asks
-        time.sleep(0.1)
-    return asks
-
-
-def wrapped(text: str, indent: str) -> str:
-    return textwrap.fill(" ".join(text.split()), WIDTH, initial_indent=indent, subsequent_indent=indent)
-
-
-def show(response: dict, logged: dict | None) -> None:
-    scope = response["source"]
-    print(f"$ curl -s localhost:{port}/ask -d '{{\"cik\": {scope['cik']}, \"fiscal_year\": {scope['fiscal_year']}, ...}}'")
-    print(wrapped(f"question: {response['question']}", "  "))
-    if response["abstained"]:
-        print(f"abstained   {response['reason']}")
-        print(wrapped(response["detail"], "  "))
-    else:
-        print(f"answered    {response['text']}")
-        for citation in response["citations"]:
-            print(f"  [{citation['marker']}] {citation['item']}, {citation['title']}, score {citation['score']}")
-            quote = textwrap.shorten(citation["quote"], 2 * WIDTH - 20, placeholder=" ...")
-            print(wrapped(f'"{quote}"', "      "))
-    if logged is not None:
-        print(f"  stages: {', '.join(logged['stages'])}")
-    print()
-
-
-asks = logged_requests()
-for position, body in enumerate(bodies):
-    show(json.loads(body), asks[position] if position < len(asks) else None)
-BRIEF
+    echo "$answer" | python3 scripts/demo_brief.py "$log" 1 && echo
+    echo "$decline" | python3 scripts/demo_brief.py "$log" 2 && echo
 fi
 
 # The demo shows what it promises, or fails: a guard that never declines, or
