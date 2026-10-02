@@ -143,6 +143,26 @@ def test_wording_that_is_not_a_claimed_figure_does_not_cause_an_abstention(reply
     assert answer.abstained is False, answer.detail
 
 
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Apple states that its financial performance is subject to risks associated "
+        "with changes in the value of the U.S. dollar relative to local currencies [1].",
+        "Apple has implemented changes to the App Store in response to regulatory "
+        "requirements, including changes to how developers communicate with consumers "
+        "on the U.S. storefront of the App Store [1].",
+        "Research and development expense grew because the company kept investing "
+        "heavily in silicon, software and services, e.g. new chips [1].",
+        "Apple Inc. reported research and development expense of $31,370 million [1].",
+    ],
+)
+def test_an_abbreviation_does_not_split_a_cited_sentence(reply):
+    """Two of nine real narrative answers abstained because "U.S." ended a sentence."""
+    answer = _ask(reply)
+
+    assert answer.abstained is False, answer.detail
+
+
 # Case 13
 @pytest.mark.parametrize(
     "marker",

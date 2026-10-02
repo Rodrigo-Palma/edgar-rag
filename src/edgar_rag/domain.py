@@ -86,7 +86,8 @@ ABSTAINED_MESSAGES: Mapping[AbstentionReason, str] = MappingProxyType(
             "The model read the closest passages and found no answer in them."
         ),
         AbstentionReason.NO_VALID_CITATION: (
-            "The answer cited no retrieved passage, so it could not be checked and is withheld."
+            "A sentence of the answer cites no retrieved passage, "
+            "so it could not be checked and the answer is withheld."
         ),
         AbstentionReason.UNSUPPORTED_CLAIM: (
             "The answer makes a claim its cited passage does not support, so it is withheld."

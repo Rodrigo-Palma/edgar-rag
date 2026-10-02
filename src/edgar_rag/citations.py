@@ -44,7 +44,15 @@ MAX_MARKER_DIGITS = 6
 MAX_UNCITED_CONTENT_WORDS = 8
 _SCALES = (Decimal(1), Decimal(10) ** 3, Decimal(10) ** 6, Decimal(10) ** 9)
 _SCALE_WORD = re.compile(r"thousand|million|billion|trillion", re.IGNORECASE)
-_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+_SENTENCE_BREAK = re.compile(r"[.!?]\s+")
+# A full stop that ends one of these is not the end of a sentence: "U.S.",
+# "e.g.", "Inc." split a cited sentence and left its first half uncited.
+_ABBREVIATION = re.compile(
+    r"(?:\b(?:[A-Za-z]\.){2,}"
+    r"|\b(?:inc|corp|co|ltd|no|nos|vs|approx|mr|ms|dr|st|jan|feb|mar|apr|jun|jul|aug"
+    r"|sep|sept|oct|nov|dec|fig|ref)\.)$",
+    re.IGNORECASE,
+)
 _LIST_LEAD = re.compile(r"^\s*(?:[-*\u2022]|\d{1,2}[.)])\s+")
 _ONLY_MARKERS = re.compile(r"^[\s.,;:]*(?:\[\s*-?\d*\s*\][\s.,;:]*)+$")
 _ANY_MARKER = re.compile(r"\[\s*-?\d*\s*\]")
@@ -190,7 +198,7 @@ def _answer_sentences(text: str) -> list[str]:
     """
     sentences: list[str] = []
     for line in text.splitlines():
-        for part in _SENTENCE_BREAK.split(_LIST_LEAD.sub("", line)):
+        for part in _split_line(_LIST_LEAD.sub("", line)):
             if not part.strip():
                 continue
             if sentences and _ONLY_MARKERS.match(part):
@@ -198,6 +206,20 @@ def _answer_sentences(text: str) -> list[str]:
             else:
                 sentences.append(part)
     return sentences
+
+
+def _split_line(line: str) -> list[str]:
+    """Split at a full stop, question or exclamation mark, except after an abbreviation."""
+    parts: list[str] = []
+    start = 0
+    for found in _SENTENCE_BREAK.finditer(line):
+        head = line[start : found.start() + 1]
+        if _ABBREVIATION.search(head):
+            continue
+        parts.append(head)
+        start = found.end()
+    parts.append(line[start:])
+    return parts
 
 
 def _claim_text(sentence: str) -> str:
