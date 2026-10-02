@@ -85,6 +85,12 @@ jobs:
           cat "$RUNNER_TEMP/eval-ci.md"
           grep -v '^::' "$RUNNER_TEMP/eval-ci.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
+      - name: the default cosine threshold is what make cosine-threshold prints
+        shell: bash
+        run: |
+          expected=$(uv run python -c 'from edgar_rag.config import COSINE_R90; print(f"{COSINE_R90:.4f}")')
+          make cosine-threshold | tee "$RUNNER_TEMP/r90.out"
+          grep -q ": ${expected}\$" "$RUNNER_TEMP/r90.out"
       - name: make demo answers one question and declines the other without a model
         run: make demo
 

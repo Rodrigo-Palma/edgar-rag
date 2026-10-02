@@ -47,10 +47,14 @@ seconds per question against 13.21 for no gate, at a recall cost of +0.6 p.p.
 `src/edgar_rag/config.py`, is **0.7329**: the R90 of
 `edgar_rag.eval.metrics.threshold_at_recall` over the cosine scores of the
 3748 answerable golden questions of all 24 companies, fitted after the report.
-The 3076 of the eval split come from `eval/runs/v1/cases.jsonl`; the 672 of the
-dev split come from the CI replay of the committed index, whose 1344 dev cosine
-scores equal those of the full 48-filing index (the pilot run) case for case.
-To reproduce, with no model:
+The plan asks for all 24, and the frozen run holds only the 20 of the eval
+split: its 3076 come from `eval/runs/v1/cases.jsonl`. The 672 of the 4 dev
+companies come from the CI replay (`make eval-ci`, the dev split over the
+committed `eval/ci/index` and `eval/ci/tape`). Cosine needs no generator, and
+those 1344 dev scores were checked against the dev pilot run on the full
+48-filing index: identical, case for case. Fitted on one source alone the
+threshold would be 0.7312 (v1 only, 20 companies) or 0.7448 (dev only, 4
+companies). To reproduce, with no model:
 
 ```sh
 make cosine-threshold
@@ -93,5 +97,6 @@ from the run's tape (`git lfs pull --include="eval/runs/v1/tape/**"
 - [`test_a_gate_that_is_not_one_of_the_three_is_refused_at_startup`](../../tests/test_config.py): a brier gate stops the service.
 - [`test_brier_scores_on_a_frozen_tape_are_replayed`](../../tests/eval/test_eval_commands.py) and [`test_a_recording_never_scores_brier_even_on_a_tape_that_holds_it`](../../tests/eval/test_eval_commands.py): brier is replay only.
 - The CI job "report reproduces": `make eval` leaves `docs/eval/` unchanged.
-- Not enforced by a test: that 0.7329 is what `make cosine-threshold` prints,
-  since the dev half needs the CI replay first.
+- The CI step "the default cosine threshold is what make cosine-threshold
+  prints" in the `eval` job, after the replay: it fails when `COSINE_R90`
+  differs from the fit.
