@@ -1,0 +1,9 @@
+# Allow-list: the image is built from the lock and the package, nothing else.
+# Keeps out .env (the SEC contact), data/ (indexes are mounted, not baked in),
+# eval/ (snapshots and Git LFS pointers) and .git.
+*
+!pyproject.toml
+!uv.lock
+!src/
+**/__pycache__
+**/*.pyc
