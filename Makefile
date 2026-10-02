@@ -4,7 +4,7 @@ UV_RUN := uv run --frozen
 SRC := src tests scripts
 
 .DEFAULT_GOAL := help
-.PHONY: help sync check lint format typecheck imports test audit serve demo image up down \
+.PHONY: help sync check lint format typecheck imports test audit serve demo demo-record image up down \
 	ingest eval eval-full eval-ci eval-ci-baseline eval-ci-record cosine-threshold readme
 
 help: ## List the targets
@@ -45,6 +45,9 @@ serve: ## Serve answers from the index on 127.0.0.1:8000 (needs Ollama)
 
 demo: ## Replay two recorded questions through the service: one answer, one decline (no model)
 	./scripts/demo.sh
+
+demo-record: ## Re-record docs/media/demo.gif from docs/media/demo.tape (needs vhs)
+	vhs docs/media/demo.tape
 
 # --- evaluation --------------------------------------------------------------
 
