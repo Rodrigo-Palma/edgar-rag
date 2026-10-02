@@ -1,0 +1,106 @@
+{
+ "format_version": 2,
+ "fingerprint": {
+  "model": "nomic-embed-text",
+  "lowercase": true,
+  "dimensions": 768
+ },
+ "filings": [
+  {
+   "accession": "0000018230-25-000008",
+   "cik": 18230,
+   "fiscal_year": 2024,
+   "form": "10-K",
+   "company": "CATERPILLAR INC",
+   "filing_date": "2025-02-14",
+   "url": "https://www.sec.gov/Archives/edgar/data/18230/000001823025000008/cat-20241231.htm",
+   "chunks": 486,
+   "vectors_sha256": "6bfeee51e59a28170c030b04ced81bf4be522200a8fd4b872135bf1cfbe03101",
+   "chunks_sha256": "768826c1e503151435ccc4abb13488a796d7282b56f9f5d118a6f9bc5d559848"
+  },
+  {
+   "accession": "0000018230-26-000008",
+   "cik": 18230,
+   "fiscal_year": 2025,
+   "form": "10-K",
+   "company": "CATERPILLAR INC",
+   "filing_date": "2026-02-13",
+   "url": "https://www.sec.gov/Archives/edgar/data/18230/000001823026000008/cat-20251231.htm",
+   "chunks": 487,
+   "vectors_sha256": "bec8ccfaddf563f45f22ce9d8b2db71865f3fcabead85fb6eedace477e620351",
+   "chunks_sha256": "35ca868d56a00056a0b37977460ba31c6128e145fc82cb7706537f7c79f1a650"
+  },
+  {
+   "accession": "0000021344-25-000011",
+   "cik": 21344,
+   "fiscal_year": 2024,
+   "form": "10-K",
+   "company": "COCA COLA CO",
+   "filing_date": "2025-02-20",
+   "url": "https://www.sec.gov/Archives/edgar/data/21344/000002134425000011/ko-20241231.htm",
+   "chunks": 686,
+   "vectors_sha256": "44034d0f3e9786b661c36e99f27a7a5c8a15c728d325f9f6fe84a4a6faba5b09",
+   "chunks_sha256": "fa7e53cc73a77dd90542480e770d3a6aada8680e29bd8765ca3dfd8c491cc5f4"
+  },
+  {
+   "accession": "0001628280-26-010047",
+   "cik": 21344,
+   "fiscal_year": 2025,
+   "form": "10-K",
+   "company": "COCA COLA CO",
+   "filing_date": "2026-02-20",
+   "url": "https://www.sec.gov/Archives/edgar/data/21344/000162828026010047/ko-20251231.htm",
+   "chunks": 687,
+   "vectors_sha256": "b1231a86855e15f7f364f10d13a3928615c65f796b11375ed5066454b02cb645",
+   "chunks_sha256": "23be9b536d52227874b8b1a5fb3a83e6c8b9c4c134f2247464b2b8ad2da3e913"
+  },
+  {
+   "accession": "0000078003-25-000054",
+   "cik": 78003,
+   "fiscal_year": 2024,
+   "form": "10-K",
+   "company": "PFIZER INC",
+   "filing_date": "2025-02-27",
+   "url": "https://www.sec.gov/Archives/edgar/data/78003/000007800325000054/pfe-20241231.htm",
+   "chunks": 729,
+   "vectors_sha256": "8b5e5c3b2b9aa8a260fb8cc7e9df7134793bf447dc3e67b1ab1904fd2361f233",
+   "chunks_sha256": "a273503e84da95afd9ee127a059078e8763d0e75c03d0138870a428f481dc85c"
+  },
+  {
+   "accession": "0000078003-26-000026",
+   "cik": 78003,
+   "fiscal_year": 2025,
+   "form": "10-K",
+   "company": "PFIZER INC",
+   "filing_date": "2026-02-26",
+   "url": "https://www.sec.gov/Archives/edgar/data/78003/000007800326000026/pfe-20251231.htm",
+   "chunks": 724,
+   "vectors_sha256": "f4ee221ae0eb081d91ede6eb350c6a424a17e9c1100a445272a42c76761b4f99",
+   "chunks_sha256": "089e31131c0cf3de316c58018eccf3da25e95895f972c4655ca0d5ac75f87873"
+  },
+  {
+   "accession": "0000320193-24-000123",
+   "cik": 320193,
+   "fiscal_year": 2024,
+   "form": "10-K",
+   "company": "Apple Inc.",
+   "filing_date": "2024-11-01",
+   "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl-20240928.htm",
+   "chunks": 228,
+   "vectors_sha256": "ca37f5391fae9cc3bdef601c913b0c1c92636a262d8b0e73e44e2f94e2b4ab22",
+   "chunks_sha256": "e391f541993d74dd36c3974b14f508b45c99f959c9fad96ceaafb7579025492c"
+  },
+  {
+   "accession": "0000320193-25-000079",
+   "cik": 320193,
+   "fiscal_year": 2025,
+   "form": "10-K",
+   "company": "Apple Inc.",
+   "filing_date": "2025-10-31",
+   "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm",
+   "chunks": 232,
+   "vectors_sha256": "8edd19642cd7cae48910d6604c9f68e5ccb38485bfe689ea93d2d535b06c66c2",
+   "chunks_sha256": "ebfce8f44420f652ffdd836eacc531ae31cb81b86bf49b56046769a8ca45ca85"
+  }
+ ]
+}

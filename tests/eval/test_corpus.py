@@ -7,13 +7,17 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from edgar_rag.domain import EmbedderSpec
 from edgar_rag.eval.build import EvalPaths, indexed_text
 from edgar_rag.eval.corpus import index_pinned, indexed_filing, pinned_filings
 from edgar_rag.eval.snapshot import read_lock, read_text_snapshot
+from edgar_rag.index import CorpusIndex
 
 REPO_EVAL = Path(__file__).parents[2] / "eval"
 LOCK = read_lock(REPO_EVAL / "filings.lock.json")
 SNAPSHOTS = EvalPaths(REPO_EVAL).snapshots
+# What ServiceSettings and OllamaEmbedder default to.
+SERVICE_EMBEDDER = EmbedderSpec(model="nomic-embed-text", lowercase=True)
 
 
 class OneVectorPerText:
@@ -84,3 +88,24 @@ def test_a_snapshot_that_is_not_the_locked_text_is_refused(tmp_path):
 
     with pytest.raises(ValueError, match="SHA-256"):
         index_pinned(tampered, LOCK, filing, OneVectorPerText())
+
+
+def test_the_committed_ci_index_is_the_dev_split_embedded_as_the_service_expects():
+    index = CorpusIndex.load(REPO_EVAL / "ci" / "index", SERVICE_EMBEDDER)
+
+    assert {f.accession for f in index.filings} == {
+        f.accession for f in pinned_filings(LOCK, split="dev")
+    }
+    assert index.fingerprint.dimensions == 768
+
+
+def test_the_committed_ci_index_holds_the_text_the_golden_set_was_checked_against():
+    """Fails when chunking or the snapshots change and the CI index was not rebuilt."""
+    index = CorpusIndex.load(REPO_EVAL / "ci" / "index", SERVICE_EMBEDDER)
+    pinned = {filing.accession: filing for filing in LOCK.filings}
+
+    for shard in index.shards:
+        filing = pinned[shard.filing.accession]
+        checked = indexed_text(read_text_snapshot(SNAPSHOTS, filing))
+        assert "\n\n".join(chunk.text for chunk in shard.chunks) == checked, filing.ticker
+        assert shard.filing == indexed_filing(LOCK, filing)
