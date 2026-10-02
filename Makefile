@@ -5,7 +5,7 @@ SRC := src tests
 
 .DEFAULT_GOAL := help
 .PHONY: help sync check lint format typecheck imports test audit serve demo image up down \
-	ingest eval eval-full
+	ingest eval eval-full eval-ci eval-ci-baseline eval-ci-record
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -65,6 +65,32 @@ eval: ## Rebuild docs/eval/ from the frozen runs in eval/runs/ (no model, no net
 		$(UV_RUN) edgar-rag eval report --run $$run --out $$out || exit 1; \
 		echo "$$out"; \
 	done
+
+# The CI tier: the dev split replayed from the qwen3:8b tape over the committed
+# index. Index and tape are rebuilt together, never one without the other.
+CI_INDEX := eval/ci/index
+CI_TAPE := eval/ci/tape
+CI_BASELINE := eval/ci/baseline.json
+CI_RUN := data/eval/ci
+CI_MODEL := qwen3:8b
+REPLAY_CI := $(UV_RUN) edgar-rag eval run --split dev --mode replay \
+	--index-dir $(CI_INDEX) --tape $(CI_TAPE) --out $(CI_RUN)
+
+eval-ci: ## Replay the dev split and fail on a regression against eval/ci/baseline.json (no model)
+	$(REPLAY_CI)
+	$(UV_RUN) edgar-rag eval ci --run $(CI_RUN) --baseline $(CI_BASELINE)
+
+eval-ci-baseline: ## Rewrite eval/ci/baseline.json from a replay of the tape (no model)
+	$(REPLAY_CI)
+	$(UV_RUN) edgar-rag eval ci --run $(CI_RUN) --baseline $(CI_BASELINE) --write
+
+eval-ci-record: ## Rebuild the CI index, record a fresh qwen3:8b tape, rewrite the baseline (needs Ollama)
+	rm -rf $(CI_RUN)-record
+	$(UV_RUN) edgar-rag ingest --lock $(LOCK) --split dev --index-dir $(CI_INDEX)
+	$(UV_RUN) edgar-rag eval run --split dev --mode record --generation-model $(CI_MODEL) \
+		--index-dir $(CI_INDEX) --out $(CI_RUN)-record --tape $(CI_RUN)-record/tape
+	rm -rf $(CI_TAPE) && mv $(CI_RUN)-record/tape $(CI_TAPE)
+	$(MAKE) eval-ci-baseline
 
 eval-full: ## The pre-registered round on the eval split, into eval/runs/v1 (needs Ollama, hours)
 	$(UV_RUN) edgar-rag eval run --split eval --narratives --repeat 30 \
