@@ -16,10 +16,11 @@ from fastapi.testclient import TestClient
 
 from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import Generation
-from edgar_rag.gate import CosineGate
+from edgar_rag.gate import AllOf, CosineGate
 from edgar_rag.index import CorpusIndex
+from edgar_rag.period import PeriodGuard
 from edgar_rag.service.app import create_app
-from tests.fakes import CIK, CITED_REPLY, EXAMPLE, ON_TOPIC, fake_answerer
+from tests.fakes import CIK, CITED_REPLY, EXAMPLE, ON_TOPIC, FakeEmbedder, fake_answerer
 
 # Long enough that a passing run never comes near it, short enough that a
 # request left hanging fails the test instead of the whole run.
@@ -266,3 +267,22 @@ def test_a_crash_is_logged_as_a_500(index, caplog):
     [line] = _telemetry(caplog)
     assert line["status"] == 500
     assert "generate" in line["stages"]
+
+
+def test_a_period_rejection_is_logged_with_every_gate_score(index, caplog):
+    """The relevance score is logged even though the guard decided."""
+    in_2019 = "what did the company design in fiscal 2019?"
+    answerer = fake_answerer(
+        index,
+        embedder=FakeEmbedder({in_2019: [1.0, 0.0]}),
+        gate=AllOf(PeriodGuard(), CosineGate(0.5)),
+    )
+    app = create_app(ServiceSettings(), answerer)
+
+    with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
+        client.post("/ask", json={"cik": CIK, "question": in_2019})
+
+    [line] = _telemetry(caplog)
+    assert line["reason"] == "out_of_period"
+    assert line["gate_score"] == 1.0
+    assert line["gate_scores"] == {"period": 0.0, "cosine": 1.0}

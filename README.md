@@ -346,7 +346,7 @@ another filing adds a shard; ingesting the same one again replaces it.
 
 Every request writes one line of JSON to stderr with its status, total and
 per-stage seconds (`embed`, `search`, `gate`, `generate`), `reason`,
-`degraded`, and the prompt and completion tokens of the generation (null when
+`degraded`, the score of every gate that ran (`gate_scores`), and the prompt and completion tokens of the generation (null when
 the model was not asked, or did not report a count). The question itself is
 not logged. The generator runs with `temperature=0`, `seed=0`, thinking off
 and an 8192-token context, so the same prompt should get the same answer;

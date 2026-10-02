@@ -233,6 +233,7 @@ def _request_fields(request: Request, status: int, seconds: float) -> dict[str, 
         "degraded": answer.degraded if answer else None,
         "retrieval_score": answer.retrieval_score if answer else None,
         "gate_score": answer.gate_score if answer else None,
+        "gate_scores": dict(answer.trace.gate_scores) if answer else None,
         "prompt_tokens": generation.prompt_tokens if generation else None,
         "completion_tokens": generation.completion_tokens if generation else None,
     }
