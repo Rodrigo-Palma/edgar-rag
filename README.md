@@ -22,8 +22,9 @@ answer it does give names the passage it came from.
   └───────────────────────────────┬───────────────────────────────┘
                                    ▼
   ┌───────────────────────────────────────────────────────────────┐
-  │ RELEVANCE GATE ── does this passage answer THIS question?      │
+  │ GATE ── can this filing answer THIS question?                  │
   │                                                                │
+  │   PeriodGuard  no model: declines a year the filing lacks      │
   │   CosineGate   free, and cannot tell 1994 from 2024            │
   │   BrierGate    a calibrated model, degrades to cosine if down  │
   └──────────┬────────────────────────────────┬───────────────────┘
@@ -163,6 +164,29 @@ predicted, which is the most useful thing a metric can do.
 python scripts/evaluate_gates.py     # needs a brier service on :8100
 ```
 
+## Declining the wrong year without a model
+
+A relevance score cannot see a year. "What was revenue in fiscal 2019?" sits
+next to the revenue passage of a 2025 10-K, and that passage does answer it,
+for another year; the wrong-year questions above are the ones the model gate
+kept admitting. So a rule with no model in it runs in front of the relevance
+gate. `PeriodGuard` reads the years a question names (`2019`, `fiscal 2019`,
+`FY2019`, `FY19`) and admits it only when the filing reports every one of
+them: its own fiscal year and the two before it, taken from the filing's
+metadata, never from its XBRL values. A question that names no year passes.
+A decline says `out_of_period`, and the model is never called.
+
+What it misreads: a year that is not a period ("notes due 2030", "the 2019
+Omnibus Plan") counts as one, and "last year" names none.
+
+`EDGAR_RAG_GATE` picks the checks: `period+cosine` (the default, which needs
+nothing but the index), `cosine`, `period+brier`, `brier`, or `none`, which asks
+the model every time and leaves the refusal to it. The brier gates need
+`EDGAR_RAG_BRIER_URL`, and the others refuse to start with one set rather than
+ignore it. With the guard in front, every gate is still asked after one
+declines, so the request log and the evaluation get each score whatever the
+decision.
+
 ## Install and run
 
 ```bash
@@ -215,7 +239,7 @@ to `...`, nothing else changed):
   ],
   "abstained": false,
   "reason": null,
-  "detail": "best passage scored 0.680",
+  "detail": "no year named; this filing reports fiscal 2023 to 2025; best passage scored 0.680",
   "retrieval_score": 0.6804,
   "gate_score": 0.6804,
   "degraded": false,
@@ -239,8 +263,8 @@ An abstention has no `text`, and says which check withheld the answer:
   "text": null,
   "citations": [],
   "abstained": true,
-  "reason": "gate_rejected",
-  "detail": "No passage in this filing is close enough to the question, so the model was not asked. (best passage scored 0.405, below the 0.55 threshold)",
+  "reason": "out_of_period",
+  "detail": "The question asks about a period this filing does not cover, so the model was not asked. (the question names fiscal 1998; this filing reports fiscal 2023 to 2025; best passage scored 0.405, below the 0.55 threshold)",
   "retrieval_score": 0.4051,
   "gate_score": 0.4051,
   "degraded": false,
@@ -258,11 +282,11 @@ An abstention has no `text`, and says which check withheld the answer:
 
 `reason` is one of `gate_rejected`, `out_of_period`, `model_declined`,
 `no_valid_citation`, `unsupported_claim` or `out_of_scope`, and is `null` on an
-answer. Every one but `out_of_period` is emitted today; that one is reserved
-for the period guard, so adding it does not change the response. On
-`out_of_scope`, `source` is `null` and both scores are 0, since nothing was
-searched. `gate_score` is the gate's own confidence: cosine similarity for the
-cosine gate, a probability for the model gate.
+answer. When the period guard and the relevance gate both decline, as above,
+the reason is the guard's and `detail` lists both. On `out_of_scope`, `source`
+is `null` and both scores are 0, since nothing was searched. `gate_score` is
+the relevance gate's own confidence, with or without the guard in front of it:
+cosine similarity for the cosine gate, a probability for the model gate.
 
 `degraded` is true when the gate decided on part of its evidence: the brier
 service was unreachable and cosine answered in its place, or it could not judge
@@ -344,7 +368,8 @@ default. Both are needed before it listens anywhere else.
 | `src/edgar_rag/prompt.py` | the generation prompt and the untrusted-text guard |
 | `src/edgar_rag/citations.py` | which passages an answer cites, whether each sentence is backed by them, and the quote shown |
 | `src/edgar_rag/chunking.py` | sections into passages, cut on sentence boundaries |
-| `src/edgar_rag/gate.py` | the relevance gate: cosine, model, and the fallback |
+| `src/edgar_rag/gate.py` | the relevance gates (cosine, model with its fallback, none) and `AllOf`, which composes gates |
+| `src/edgar_rag/period.py` | the period guard: the years a question names against the years the filing reports |
 | `src/edgar_rag/index.py` | the index: one shard per filing, the manifest and its checks, scoped cosine search |
 | `src/edgar_rag/models.py` | Ollama embedding and generation, lower-cased and pinned |
 | `src/edgar_rag/edgar/` | EDGAR client, XBRL facts and the 10-K parser |

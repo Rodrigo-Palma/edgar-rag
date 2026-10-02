@@ -10,11 +10,21 @@ from fastapi.testclient import TestClient
 
 from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import Generation
-from edgar_rag.gate import BrierGate, CosineGate, GateError
+from edgar_rag.gate import AllOf, BrierGate, CosineGate, GateError, NoGate
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import ModelError
+from edgar_rag.period import PeriodGuard
 from edgar_rag.service.app import build_gate, create_app, serve
-from tests.fakes import CIK, EXAMPLE, ON_TOPIC, SPEC, fake_answerer
+from tests.fakes import (
+    CIK,
+    CITED_REPLY,
+    EXAMPLE,
+    ON_TOPIC,
+    SPEC,
+    FakeEmbedder,
+    FakeGenerator,
+    fake_answerer,
+)
 
 
 def _settings(**overrides) -> ServiceSettings:
@@ -365,13 +375,34 @@ def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
     assert str(tmp_path) not in response.text
 
 
-def test_the_gate_is_cosine_only_while_no_brier_url_is_configured():
+def test_the_default_gate_puts_the_period_guard_in_front_of_cosine():
+    settings = ServiceSettings(min_retrieval_score=0.4)
+
     with httpx.Client() as client:
-        assert isinstance(build_gate(ServiceSettings(brier_url=None), client), CosineGate)
+        gate = build_gate(settings, client)
+
+    assert gate == AllOf(PeriodGuard(), CosineGate(0.4))
 
 
-def test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it():
+@pytest.mark.parametrize(
+    ("choice", "expected"),
+    [
+        ("none", NoGate()),
+        ("cosine", CosineGate(0.4)),
+        ("period+cosine", AllOf(PeriodGuard(), CosineGate(0.4))),
+    ],
+)
+def test_each_gate_without_brier_is_built_as_named(choice, expected):
+    with httpx.Client() as client:
+        gate = build_gate(ServiceSettings(gate=choice, min_retrieval_score=0.4), client)
+
+    assert gate == expected
+
+
+@pytest.mark.parametrize("choice", ["brier", "period+brier"])
+def test_a_brier_gate_puts_the_model_in_front_of_cosine_through_the_service_client(choice):
     settings = ServiceSettings(
+        gate=choice,
         brier_url="http://brier.test",
         brier_min_confidence=0.8,
         min_retrieval_score=0.4,
@@ -380,10 +411,58 @@ def test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it()
     with httpx.Client() as client:
         gate = build_gate(settings, client)
 
-    assert isinstance(gate, BrierGate)
-    assert gate.min_confidence == 0.8
-    assert gate.fallback == CosineGate(0.4)
-    assert gate.client is client
+    brier = gate.gates[-1] if isinstance(gate, AllOf) else gate
+    assert isinstance(brier, BrierGate)
+    assert brier.min_confidence == 0.8
+    assert brier.fallback == CosineGate(0.4)
+    assert brier.client is client
+    if choice == "period+brier":
+        assert gate == AllOf(PeriodGuard(), brier)
+
+
+def test_building_a_brier_gate_without_a_url_fails_even_past_the_settings_check():
+    unchecked = ServiceSettings.model_construct(gate="brier", brier_url=None)
+
+    with httpx.Client() as client, pytest.raises(ValueError, match="needs EDGAR_RAG_BRIER_URL"):
+        build_gate(unchecked, client)
+
+
+def test_a_question_about_another_year_is_declined_out_of_period_by_default(index):
+    """End to end: the default service never asks the model about fiscal 2019."""
+    generator = FakeGenerator(CITED_REPLY)
+    app = create_app(ServiceSettings(), _default_gate_answerer(index, generator))
+
+    with TestClient(app) as client:
+        body = client.post("/ask", json={"cik": CIK, "question": IN_2019}).json()
+
+    assert body["abstained"] is True
+    assert body["reason"] == "out_of_period"
+    assert "fiscal 2019" in body["detail"]
+    assert body["source"]["fiscal_year"] == 2024
+    assert generator.prompts == []
+
+
+def test_a_question_about_a_reported_year_is_answered_by_default(index):
+    generator = FakeGenerator(CITED_REPLY)
+    app = create_app(ServiceSettings(), _default_gate_answerer(index, generator))
+
+    with TestClient(app) as client:
+        body = client.post("/ask", json={"cik": CIK, "question": IN_2023}).json()
+
+    assert body["abstained"] is False
+    assert len(generator.prompts) == 1
+
+
+IN_2019 = "what did the company design in fiscal 2019?"
+IN_2023 = "what did the company design in fiscal 2023?"
+
+
+def _default_gate_answerer(index, generator):
+    """The gate the default settings build, over a fake embedder and generator."""
+    with httpx.Client() as unused:
+        gate = build_gate(ServiceSettings(), unused)
+    embedder = FakeEmbedder({IN_2019: [1.0, 0.0], IN_2023: [1.0, 0.0]})
+    return fake_answerer(index, embedder=embedder, generator=generator, gate=gate)
 
 
 def test_a_partly_judged_brier_refusal_reaches_the_client_as_degraded(index):

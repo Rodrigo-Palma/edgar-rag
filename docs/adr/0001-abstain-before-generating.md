@@ -43,6 +43,15 @@ A fallback is never reported as the primary judge: when `BrierGate` cannot reach
 its service and falls back, the decision carries `degraded=True` and the reason
 says so. Without a fallback the failure is raised as `GateError`.
 
+Amended on 2026-10-01: the gate also receives the filing the scope resolved
+to, so a rule can judge the question against the period that filing covers.
+`PeriodGuard` (`src/edgar_rag/period.py`) is that rule, `AllOf` composes it in
+front of a relevance gate, and `build_gate` builds whatever `EDGAR_RAG_GATE`
+names, `period+cosine` by default. A decision carries the abstention reason it
+rejects with (`gate_rejected`, or `out_of_period` from the guard) and every
+score it computed, and `BrierGate` now asks about every passage, so its score
+no longer depends on its threshold.
+
 ## Consequences
 
 - A refused question costs one embedding and one vector search (0.06 s measured
@@ -69,5 +78,6 @@ says so. Without a fallback the failure is raised as `GateError`.
 - [`test_abstains_before_generating_when_retrieval_is_weak`](../../tests/test_answer.py): the fake generator records no prompt when the gate refuses.
 - [`test_abstains_when_the_model_says_the_filing_does_not_cover_it`](../../tests/test_answer.py) and [`test_an_answer_that_cites_nothing_is_an_abstention`](../../tests/test_answer.py): the post-generation paths are distinct from the gate's.
 - [`test_an_unreachable_brier_falls_back_to_cosine_and_says_it_did`](../../tests/test_gate.py) and [`test_an_unreachable_brier_without_a_fallback_is_an_error`](../../tests/test_gate.py): `degraded=True` on fallback, `GateError` without one.
-- [`test_the_gate_is_cosine_only_while_no_brier_url_is_configured`](../../tests/test_api.py) and [`test_configuring_a_brier_url_puts_the_model_in_front_with_cosine_behind_it`](../../tests/test_api.py): the wiring in `build_gate`.
+- [`test_each_gate_without_brier_is_built_as_named`](../../tests/test_api.py) and [`test_a_brier_gate_puts_the_model_in_front_of_cosine_through_the_service_client`](../../tests/test_api.py): the wiring in `build_gate`.
+- [`test_a_period_rejection_is_out_of_period_whatever_the_relevance_gate_thought`](../../tests/test_gate_composition.py) and [`test_a_question_in_a_reported_year_is_never_declined`](../../tests/test_period.py): the guard in front of the relevance gate.
 - Not yet enforced: a test that `degraded` reaches the HTTP response.

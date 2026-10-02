@@ -7,13 +7,18 @@ EDGAR and does not ask for a User-Agent. Every variable carries the
 """
 
 from pathlib import Path
+from typing import Literal, Self
 
-from pydantic import Field, HttpUrl, field_validator
+from pydantic import Field, HttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from edgar_rag.edgar.user_agent import validate_user_agent
 
 LOCAL_OLLAMA = HttpUrl("http://localhost:11434")
+
+GateChoice = Literal["none", "cosine", "period+cosine", "brier", "period+brier"]
+"""Which checks run before the model is asked: none, a relevance gate, or the
+period guard in front of one."""
 
 
 class _SharedSettings(BaseSettings):
@@ -35,13 +40,20 @@ class ServiceSettings(_SharedSettings):
     127.0.0.1 unless told otherwise: it has no authentication and no rate
     limit, which is acceptable only there.
 
-    Leave ``brier_url`` unset to judge relevance by cosine similarity alone.
-    Set it to a running brier service to judge it with a calibrated model
-    instead; the cosine gate stays on as the fallback if that service is
-    unreachable.
+    ``gate`` picks the checks that run before the model is asked. The default,
+    ``period+cosine``, declines a question about a year the filing does not
+    report and then one whose closest passage is not close enough; it needs
+    nothing but the index, so anyone can run it. ``brier`` and
+    ``period+brier`` judge relevance with a calibrated model at ``brier_url``
+    instead, with cosine as the fallback when that service is unreachable.
+    ``none`` asks the model every time and leaves the refusal to it.
+
+    A ``brier_url`` is required by the brier gates and refused by the others,
+    so a URL that would be silently ignored stops the service instead.
     """
 
     generation_model: str = "qwen3:32b"
+    gate: GateChoice = "period+cosine"
     min_retrieval_score: float = Field(default=0.55, ge=0.0, le=1.0)
     brier_url: HttpUrl | None = None
     brier_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
@@ -54,6 +66,18 @@ class ServiceSettings(_SharedSettings):
 
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
+
+    @model_validator(mode="after")
+    def _brier_url_matches_the_gate(self) -> Self:
+        uses_brier = self.gate.endswith("brier")
+        if uses_brier and self.brier_url is None:
+            raise ValueError(f"EDGAR_RAG_GATE={self.gate} needs EDGAR_RAG_BRIER_URL")
+        if not uses_brier and self.brier_url is not None:
+            raise ValueError(
+                f"EDGAR_RAG_BRIER_URL is set but EDGAR_RAG_GATE={self.gate} does not use it; "
+                "choose brier or period+brier, or unset the URL"
+            )
+        return self
 
 
 class IngestSettings(_SharedSettings):

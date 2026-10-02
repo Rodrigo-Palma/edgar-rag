@@ -13,7 +13,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import Annotated
+from typing import Annotated, assert_never
 
 import anyio
 import httpx
@@ -25,9 +25,10 @@ from edgar_rag import __version__
 from edgar_rag.answer import Answerer
 from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import Answer, EmbedderSpec, Generation, Generator, RelevanceGate
-from edgar_rag.gate import BrierGate, CosineGate
+from edgar_rag.gate import AllOf, BrierGate, CosineGate, NoGate
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import LOWERCASE_INPUT, OllamaEmbedder, OllamaGenerator, OllamaProbe
+from edgar_rag.period import PeriodGuard
 from edgar_rag.service.failures import (
     IndexUnavailable,
     RequestTimedOut,
@@ -73,15 +74,35 @@ def with_generation_limit(answerer: ServedAnswerer, limit: int) -> ServedAnswere
 
 
 def build_gate(settings: ServiceSettings, client: httpx.Client) -> RelevanceGate:
-    """Cosine on its own, or brier with cosine behind it."""
+    """The checks ``EDGAR_RAG_GATE`` names, the period guard first when it is one.
+
+    Brier always has cosine behind it, so an outage degrades the answer
+    rather than failing it.
+    """
     cosine = CosineGate(min_score=settings.min_retrieval_score)
+    match settings.gate:
+        case "none":
+            return NoGate()
+        case "cosine":
+            return cosine
+        case "period+cosine":
+            return AllOf(PeriodGuard(), cosine)
+        case "brier":
+            return _brier(settings, cosine, client)
+        case "period+brier":
+            return AllOf(PeriodGuard(), _brier(settings, cosine, client))
+        case unknown:
+            assert_never(unknown)
+
+
+def _brier(settings: ServiceSettings, fallback: CosineGate, client: httpx.Client) -> BrierGate:
     if settings.brier_url is None:
-        return cosine
+        raise ValueError(f"EDGAR_RAG_GATE={settings.gate} needs EDGAR_RAG_BRIER_URL")
     return BrierGate(
         url=str(settings.brier_url),
-        min_confidence=settings.brier_min_confidence,
-        fallback=cosine,
         client=client,
+        min_confidence=settings.brier_min_confidence,
+        fallback=fallback,
     )
 
 
