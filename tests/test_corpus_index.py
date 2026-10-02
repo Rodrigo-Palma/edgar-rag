@@ -347,6 +347,22 @@ def test_a_shard_changed_after_it_was_written_is_refused(tmp_path):
         CorpusIndex.load(tmp_path, SPEC)
 
 
+LFS_POINTER = (
+    "version https://git-lfs.github.com/spec/v1\n"
+    "oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\n"
+    "size 1234567\n"
+)
+
+
+def test_a_git_lfs_pointer_in_place_of_the_vectors_says_to_pull_them(tmp_path):
+    index = _corpus()
+    index.save(tmp_path)
+    (tmp_path / index.filings[0].accession / "vectors.npy").write_text(LFS_POINTER)
+
+    with pytest.raises(IndexFormatError, match=r"Git LFS pointer.*git lfs pull"):
+        CorpusIndex.load(tmp_path, SPEC)
+
+
 def test_a_shard_listed_but_missing_is_refused(tmp_path):
     index = _corpus()
     index.save(tmp_path)

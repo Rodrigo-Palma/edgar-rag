@@ -80,7 +80,7 @@ layers = [
     "edgar_rag.ingest | edgar_rag.answer | edgar_rag.config",
     "edgar_rag.prompt | edgar_rag.citations",
     "edgar_rag.chunking | edgar_rag.gate | edgar_rag.index | edgar_rag.models | edgar_rag.period",
-    "edgar_rag.edgar | edgar_rag.telemetry | edgar_rag.amounts",
+    "edgar_rag.edgar | edgar_rag.telemetry | edgar_rag.amounts | edgar_rag.lfs",
     "edgar_rag.domain",
 ]
 
