@@ -61,10 +61,12 @@ def wilson_interval(successes: int, n: int, confidence: float = DEFAULT_CONFIDEN
     z2n = z * z / n
     centre = (p + z2n / 2) / (1 + z2n)
     margin = z * math.sqrt(p * (1 - p) / n + z2n / (4 * n)) / (1 + z2n)
+    # At 0/n and n/n the bound is exactly 0 or 1; computing it as
+    # centre - margin leaves a platform-dependent residue of ~1e-17.
     return Estimate(
         point=p,
-        low=max(0.0, centre - margin),
-        high=min(1.0, centre + margin),
+        low=0.0 if successes == 0 else max(0.0, centre - margin),
+        high=1.0 if successes == n else min(1.0, centre + margin),
         confidence=confidence,
     )
 
