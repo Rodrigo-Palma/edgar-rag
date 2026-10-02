@@ -4,7 +4,8 @@ UV_RUN := uv run --frozen
 SRC := src tests
 
 .DEFAULT_GOAL := help
-.PHONY: help sync check lint format typecheck imports test audit serve demo image up down
+.PHONY: help sync check lint format typecheck imports test audit serve demo image up down \
+	ingest eval eval-full
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -41,6 +42,34 @@ serve: ## Serve answers from the index on 127.0.0.1:8000 (needs Ollama)
 
 demo: ## Replay two recorded questions through the service: one answer, one decline (no model)
 	./scripts/demo.sh
+
+# --- evaluation --------------------------------------------------------------
+
+LOCK := eval/filings.lock.json
+RUNS := eval/runs
+REPORTS := docs/eval
+HEADLINE_RUN := $(RUNS)/v1
+HEADLINE_MODEL := qwen3:32b
+
+ingest: ## Index the golden set's 48 pinned filings from their snapshots (needs Ollama)
+	$(UV_RUN) edgar-rag ingest --lock $(LOCK)
+
+eval: ## Rebuild docs/eval/ from the frozen runs in eval/runs/ (no model, no network)
+	@runs=$$(find $(RUNS) -mindepth 2 -maxdepth 2 -name manifest.json -exec dirname {} \; 2>/dev/null | sort); \
+	if [ -z "$$runs" ]; then \
+		echo "no frozen run in $(RUNS)/ yet: make eval-full writes $(HEADLINE_RUN)"; exit 0; \
+	fi; \
+	mkdir -p $(REPORTS); \
+	for run in $$runs; do \
+		out=$(REPORTS)/report-$$(basename $$run).md; \
+		$(UV_RUN) edgar-rag eval report --run $$run --out $$out || exit 1; \
+		echo "$$out"; \
+	done
+
+eval-full: ## The pre-registered round on the eval split, into eval/runs/v1 (needs Ollama, hours)
+	$(UV_RUN) edgar-rag eval run --split eval --narratives --repeat 30 \
+		--protocol $(REPORTS)/protocol.md --generation-model $(HEADLINE_MODEL) --out $(HEADLINE_RUN)
+	$(MAKE) eval
 
 IMAGE := edgar-rag:local
 
