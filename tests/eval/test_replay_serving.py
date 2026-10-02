@@ -22,7 +22,7 @@ from tests.fakes import CIK, SPEC
 REPO = Path(__file__).parents[2]
 DEMO_SCRIPT = REPO / "scripts" / "demo.sh"
 README = REPO / "README.md"
-DEMO_BODY = re.compile(r"^ask '(\{.*\})'$", re.MULTILINE)
+DEMO_BODY = re.compile(r"\$\(ask '(\{.*\})'\)$", re.MULTILINE)
 
 
 def _golden(root: Path):
