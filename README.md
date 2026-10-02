@@ -58,8 +58,8 @@ What follows, by the rules of section 9 written before the run:
   recall cost above.
 - **The relevance model was removed.** It ranked worse than cosine on the
   gate-only tier: AUROC(brier) - AUROC(cosine) -0.101, 95% CI [-0.124, -0.080],
-  on 3076/3076 questions of 20 companies. Its frozen scores stay in the report
-  ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
+  on 3076 answerable and 3076 unanswerable questions of 20 companies. Its
+  frozen scores stay in the report ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
 
 **What this does not show.** The 480 questions are generated from XBRL
 templates; the 40 questions written by hand are reported apart
@@ -227,7 +227,8 @@ Among the questions an arm answered (Wilson 95%):
 | A no gate | 51/88 = 58.0% [47.5%, 67.7%] | 61/88 = 69.3% [59.0%, 78.0%] |
 | F period guard + cosine | 48/80 = 60.0% [49.0%, 70.0%] | 58/80 = 72.5% [61.9%, 81.1%] |
 
-Gate only, every golden question of the eval split (3076/3076, 20 companies):
+Gate only, every golden question of the eval split (3076 answerable and 3076
+unanswerable, 20 companies):
 
 | gate | AUROC, company bootstrap 95% | false answers at R90 | realised recall |
 |---|---|---|---|
