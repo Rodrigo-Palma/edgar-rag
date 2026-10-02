@@ -71,3 +71,34 @@ jobs:
         with:
           enable-cache: true
       - run: make audit
+
+  image:
+    name: container image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Built and started here, never pushed: there is no registry.
+      - run: docker build -t edgar-rag:ci .
+      - name: runs as a non-root user
+        run: test "$(docker image inspect edgar-rag:ci --format '{{.Config.User}}')" = "edgar:edgar"
+      - name: starts and answers /health without an index or Ollama
+        run: |
+          docker run --detach --name edgar-rag --publish 127.0.0.1:8000:8000 \
+            --read-only --tmpfs /tmp --cap-drop ALL edgar-rag:ci
+          for _ in $(seq 1 30); do
+            if body=$(curl --silent --fail localhost:8000/health); then break; fi
+            sleep 1
+          done
+          echo "$body"
+          python3 -c 'import json, sys; h = json.loads(sys.argv[1]); assert h["status"] == "no index" and h["ollama_reachable"] is False, h' "$body"
+      - name: image size
+        if: always()
+        run: |
+          size=$(docker run --rm --entrypoint sh edgar-rag:ci -c 'du -sxh / 2>/dev/null' | cut -f1)
+          echo "image filesystem: $size" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: container log
+        if: failure()
+        run: docker logs edgar-rag
