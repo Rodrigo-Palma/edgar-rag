@@ -1,0 +1,181 @@
+# Companies of the golden set, by ticker. The build checks every CIK against the
+# SEC's company_tickers.json snapshot and fails on any difference.
+#
+# A company is pinned to its two 10-Ks for the fiscal years below. When one of
+# them is missing under the listed CIK, or its report date falls in another
+# calendar year than its fiscal year, the company is excluded and the next
+# reserve takes its place in the same split. Exclusions are recorded in
+# eval/filings.lock.json.
+#
+# XOM: company_tickers.json maps the ticker to ExxonMobil Holdings Corp
+# (CIK 2115436), a new registrant with no 10-K; the CIK is listed as the SEC
+# lists it, so the rule above decides.
+
+fiscal_years = [2024, 2025]
+fold_seed = 20261001
+sample_seed = 20261001
+
+[[company]]
+ticker = "AAPL"
+cik = 320193
+name = "Apple"
+split = "dev"
+
+[[company]]
+ticker = "KO"
+cik = 21344
+name = "Coca-Cola"
+split = "dev"
+
+[[company]]
+ticker = "CAT"
+cik = 18230
+name = "Caterpillar"
+split = "dev"
+
+[[company]]
+ticker = "PFE"
+cik = 78003
+name = "Pfizer"
+split = "dev"
+
+[[company]]
+ticker = "MSFT"
+cik = 789019
+name = "Microsoft"
+split = "eval"
+
+[[company]]
+ticker = "GOOGL"
+cik = 1652044
+name = "Alphabet"
+split = "eval"
+
+[[company]]
+ticker = "NVDA"
+cik = 1045810
+name = "NVIDIA"
+split = "eval"
+
+[[company]]
+ticker = "AMZN"
+cik = 1018724
+name = "Amazon"
+split = "eval"
+
+[[company]]
+ticker = "WMT"
+cik = 104169
+name = "Walmart"
+split = "eval"
+
+[[company]]
+ticker = "COST"
+cik = 909832
+name = "Costco"
+split = "eval"
+
+[[company]]
+ticker = "PG"
+cik = 80424
+name = "Procter & Gamble"
+split = "eval"
+
+[[company]]
+ticker = "JNJ"
+cik = 200406
+name = "Johnson & Johnson"
+split = "eval"
+
+[[company]]
+ticker = "UNH"
+cik = 731766
+name = "UnitedHealth Group"
+split = "eval"
+
+[[company]]
+ticker = "XOM"
+cik = 2115436
+name = "Exxon Mobil"
+split = "eval"
+
+[[company]]
+ticker = "CVX"
+cik = 93410
+name = "Chevron"
+split = "eval"
+
+[[company]]
+ticker = "JPM"
+cik = 19617
+name = "JPMorgan Chase"
+split = "eval"
+
+[[company]]
+ticker = "BAC"
+cik = 70858
+name = "Bank of America"
+split = "eval"
+
+[[company]]
+ticker = "V"
+cik = 1403161
+name = "Visa"
+split = "eval"
+
+[[company]]
+ticker = "HD"
+cik = 354950
+name = "Home Depot"
+split = "eval"
+
+[[company]]
+ticker = "MCD"
+cik = 63908
+name = "McDonald's"
+split = "eval"
+
+[[company]]
+ticker = "BA"
+cik = 12927
+name = "Boeing"
+split = "eval"
+
+[[company]]
+ticker = "DE"
+cik = 315189
+name = "Deere"
+split = "eval"
+
+[[company]]
+ticker = "NEE"
+cik = 753308
+name = "NextEra Energy"
+split = "eval"
+
+[[company]]
+ticker = "UNP"
+cik = 100885
+name = "Union Pacific"
+split = "eval"
+
+# Reserves, taken in this order.
+[[reserve]]
+ticker = "LLY"
+cik = 59478
+name = "Eli Lilly"
+
+[[reserve]]
+ticker = "PEP"
+cik = 77476
+name = "PepsiCo"
+
+[[reserve]]
+ticker = "HON"
+cik = 773840
+name = "Honeywell"
+
+[[reserve]]
+ticker = "LMT"
+cik = 936468
+name = "Lockheed Martin"

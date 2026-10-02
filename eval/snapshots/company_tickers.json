@@ -1,0 +1,114 @@
+{
+ "AAPL": {
+  "cik": 320193,
+  "title": "Apple Inc."
+ },
+ "AMZN": {
+  "cik": 1018724,
+  "title": "AMAZON COM INC"
+ },
+ "BA": {
+  "cik": 12927,
+  "title": "BOEING CO"
+ },
+ "BAC": {
+  "cik": 70858,
+  "title": "BANK OF AMERICA CORP /DE/"
+ },
+ "CAT": {
+  "cik": 18230,
+  "title": "CATERPILLAR INC"
+ },
+ "COST": {
+  "cik": 909832,
+  "title": "COSTCO WHOLESALE CORP /NEW"
+ },
+ "CVX": {
+  "cik": 93410,
+  "title": "CHEVRON CORP"
+ },
+ "DE": {
+  "cik": 315189,
+  "title": "DEERE & CO"
+ },
+ "GOOGL": {
+  "cik": 1652044,
+  "title": "Alphabet Inc."
+ },
+ "HD": {
+  "cik": 354950,
+  "title": "HOME DEPOT, INC."
+ },
+ "HON": {
+  "cik": 773840,
+  "title": "HONEYWELL INTERNATIONAL INC"
+ },
+ "JNJ": {
+  "cik": 200406,
+  "title": "JOHNSON & JOHNSON"
+ },
+ "JPM": {
+  "cik": 19617,
+  "title": "JPMORGAN CHASE & CO"
+ },
+ "KO": {
+  "cik": 21344,
+  "title": "COCA COLA CO"
+ },
+ "LLY": {
+  "cik": 59478,
+  "title": "ELI LILLY & Co"
+ },
+ "LMT": {
+  "cik": 936468,
+  "title": "LOCKHEED MARTIN CORP"
+ },
+ "MCD": {
+  "cik": 63908,
+  "title": "MCDONALDS CORP"
+ },
+ "MSFT": {
+  "cik": 789019,
+  "title": "MICROSOFT CORP"
+ },
+ "NEE": {
+  "cik": 753308,
+  "title": "NEXTERA ENERGY INC"
+ },
+ "NVDA": {
+  "cik": 1045810,
+  "title": "NVIDIA CORP"
+ },
+ "PEP": {
+  "cik": 77476,
+  "title": "PEPSICO INC"
+ },
+ "PFE": {
+  "cik": 78003,
+  "title": "PFIZER INC"
+ },
+ "PG": {
+  "cik": 80424,
+  "title": "PROCTER & GAMBLE Co"
+ },
+ "UNH": {
+  "cik": 731766,
+  "title": "UNITEDHEALTH GROUP INC"
+ },
+ "UNP": {
+  "cik": 100885,
+  "title": "UNION PACIFIC CORP"
+ },
+ "V": {
+  "cik": 1403161,
+  "title": "VISA INC."
+ },
+ "WMT": {
+  "cik": 104169,
+  "title": "Walmart Inc."
+ },
+ "XOM": {
+  "cik": 2115436,
+  "title": "ExxonMobil Holdings Corp"
+ }
+}
