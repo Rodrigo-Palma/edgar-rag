@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from edgar_rag.chunking import Chunk
+from edgar_rag.domain import Chunk
 from edgar_rag.index import FilingIndex, build_index
 
 

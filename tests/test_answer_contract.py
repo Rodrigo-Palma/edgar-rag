@@ -6,8 +6,9 @@ These used to die inside ``answer_question``: the gate's confidence and its
 the reason was free prose a caller could only grep.
 """
 
-from edgar_rag.answer import AbstentionReason, abstained_message, answer_question
-from edgar_rag.gate import CosineGate, GateDecision
+from edgar_rag.answer import answer_question
+from edgar_rag.domain import AbstentionReason, GateDecision, abstained_message
+from edgar_rag.gate import CosineGate
 from tests.fakes import FakeEmbedder, FakeGate, FakeGenerator, FixedNonce
 
 QUESTION = "what does the company design?"

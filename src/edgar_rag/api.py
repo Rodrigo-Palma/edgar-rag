@@ -25,16 +25,11 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from edgar_rag import __version__
-from edgar_rag.answer import AbstentionReason, Answer, Answerer
+from edgar_rag.answer import Answerer
 from edgar_rag.config import ServiceSettings
-from edgar_rag.embeddings import (
-    Generator,
-    ModelError,
-    OllamaEmbedder,
-    OllamaGenerator,
-    OllamaProbe,
-)
-from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
+from edgar_rag.domain import AbstentionReason, Answer, Generator, RelevanceGate
+from edgar_rag.embeddings import ModelError, OllamaEmbedder, OllamaGenerator, OllamaProbe
+from edgar_rag.gate import BrierGate, CosineGate, GateError
 from edgar_rag.index import FilingIndex
 from edgar_rag.telemetry import StageTimer, log_request, write_to_stderr
 

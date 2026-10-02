@@ -1,19 +1,10 @@
 """Cut sections into passages small enough to embed and cite."""
 
-from dataclasses import dataclass
-
+from edgar_rag.domain import Chunk
 from edgar_rag.edgar.parse import Section
 
 DEFAULT_MAX_CHARS = 1_200
 DEFAULT_OVERLAP_CHARS = 150
-
-
-@dataclass(frozen=True, slots=True)
-class Chunk:
-    chunk_id: str
-    item: str
-    title: str
-    text: str
 
 
 def _windows(text: str, max_chars: int, overlap: int) -> tuple[str, ...]:

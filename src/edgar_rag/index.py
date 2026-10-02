@@ -8,16 +8,10 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from edgar_rag.chunking import Chunk
+from edgar_rag.domain import Chunk, ScoredChunk
 
 VECTORS_FILE = "vectors.npy"
 CHUNKS_FILE = "chunks.json"
-
-
-@dataclass(frozen=True, slots=True)
-class ScoredChunk:
-    chunk: Chunk
-    score: float
 
 
 @dataclass(frozen=True, slots=True)

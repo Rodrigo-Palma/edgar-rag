@@ -4,9 +4,8 @@ import httpx
 import pytest
 
 import edgar_rag.gate as gate_module
-from edgar_rag.chunking import Chunk
+from edgar_rag.domain import Chunk, ScoredChunk
 from edgar_rag.gate import BrierGate, CosineGate, GateError
-from edgar_rag.index import ScoredChunk
 
 QUESTION = "what does the company design?"
 

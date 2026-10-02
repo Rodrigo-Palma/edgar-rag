@@ -12,9 +12,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from edgar_rag.answer import Answerer
-from edgar_rag.embeddings import Embedder, Generator
-from edgar_rag.gate import CosineGate, GateDecision, RelevanceGate
-from edgar_rag.index import FilingIndex, ScoredChunk
+from edgar_rag.domain import Embedder, GateDecision, Generator, RelevanceGate, ScoredChunk
+from edgar_rag.gate import CosineGate
+from edgar_rag.index import FilingIndex
 
 
 class FakeEmbedder:

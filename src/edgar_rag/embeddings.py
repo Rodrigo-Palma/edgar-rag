@@ -2,7 +2,7 @@
 
 import time
 from collections.abc import Callable, Sequence
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 import httpx
 import numpy as np
@@ -16,14 +16,6 @@ PROBE_TTL_SECONDS = 10.0
 
 class ModelError(RuntimeError):
     """Raised when the model server cannot answer."""
-
-
-class Embedder(Protocol):
-    def embed(self, texts: Sequence[str]) -> NDArray[np.float32]: ...
-
-
-class Generator(Protocol):
-    def generate(self, prompt: str) -> str: ...
 
 
 def _post(url: str, payload: dict[str, Any], client: httpx.Client | None) -> dict[str, Any]:

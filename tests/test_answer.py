@@ -1,9 +1,8 @@
 import pytest
 
-from edgar_rag.answer import AbstentionReason, answer_question, build_prompt
-from edgar_rag.chunking import Chunk
+from edgar_rag.answer import answer_question, build_prompt
+from edgar_rag.domain import AbstentionReason, Chunk, ScoredChunk
 from edgar_rag.gate import CosineGate
-from edgar_rag.index import ScoredChunk
 from tests.fakes import FakeEmbedder, FakeGenerator, FixedNonce
 
 ON_TOPIC = "what does the company design?"

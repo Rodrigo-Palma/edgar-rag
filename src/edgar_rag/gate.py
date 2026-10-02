@@ -9,12 +9,12 @@ calibrated confidence.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Annotated, Protocol
+from typing import Annotated
 
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from edgar_rag.index import ScoredChunk
+from edgar_rag.domain import GateDecision, RelevanceGate, ScoredChunk
 
 REQUEST_TIMEOUT_SECONDS = 30.0
 # What a client sees when the brier service failed. The URL and the exception
@@ -37,26 +37,6 @@ class _BrierReply(BaseModel):
 
 class GateError(RuntimeError):
     """Raised when a gate cannot reach the service it depends on."""
-
-
-@dataclass(frozen=True, slots=True)
-class GateDecision:
-    """Whether to answer, how sure the gate is, and why.
-
-    ``reason`` is written for a person reading a log, because an abstention with
-    no reason is indistinguishable from a bug. ``degraded`` is a field rather
-    than prose in the reason so a caller can act on it: a gate that quietly
-    swapped itself for a weaker one is the failure most worth surfacing.
-    """
-
-    admitted: bool
-    confidence: float
-    reason: str
-    degraded: bool = False
-
-
-class RelevanceGate(Protocol):
-    def admits(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision: ...
 
 
 @dataclass(frozen=True, slots=True)
