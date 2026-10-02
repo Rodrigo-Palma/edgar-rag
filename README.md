@@ -75,7 +75,8 @@ questions. The question embeddings and the generations come from the tape
 `qwen3:8b` recorded over the dev split (`eval/ci/tape`); the index
 (`eval/ci/index`), the search, the gate and the citation check run for real.
 The demo sets `EDGAR_RAG_GATE=period+cosine`, so the second question is
-declined before any model would be asked.
+declined before any model would be asked. `make demo` sends both requests
+itself, prints the two responses below, checks them and stops the server.
 
 ```bash
 git lfs install       # once, before cloning: the CI index and tape live in Git LFS
@@ -83,8 +84,10 @@ uv sync --frozen
 make demo
 ```
 
+The same requests against `make serve`, which listens on `127.0.0.1:8000`:
+
 ```bash
-curl -s localhost:8077/ask -H 'content-type: application/json' \
+curl -s localhost:8000/ask -H 'content-type: application/json' \
   -d '{"cik": 320193, "fiscal_year": 2025, "question": "How much revenue did Apple report for fiscal year 2025?"}'
 ```
 
@@ -121,7 +124,7 @@ curl -s localhost:8077/ask -H 'content-type: application/json' \
 ```
 
 ```bash
-curl -s localhost:8077/ask -H 'content-type: application/json' \
+curl -s localhost:8000/ask -H 'content-type: application/json' \
   -d '{"cik": 320193, "fiscal_year": 2025, "question": "What cash dividends did Apple pay to shareholders in fiscal 2020?"}'
 ```
 
@@ -149,7 +152,9 @@ curl -s localhost:8077/ask -H 'content-type: application/json' \
 }
 ```
 
-The responses are the demo's, with the long quote trimmed to `...`.
+The responses are the demo's (replay, `period+cosine`), with the long quote
+trimmed to `...`; a live `make serve` with the default gate asks the model both
+questions, so its replies can differ.
 `reason` is one of `gate_rejected`, `out_of_period`, `model_declined`,
 `no_valid_citation`, `unsupported_claim` or `out_of_scope`, and `null` on an
 answer. `gate_score` is the relevance gate's own score (cosine similarity
