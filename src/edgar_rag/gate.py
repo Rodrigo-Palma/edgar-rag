@@ -144,18 +144,25 @@ class CosineGate:
 class BrierGate:
     """Ask a calibrated decision model whether a passage answers the question.
 
-    Each candidate passage is asked about separately and the loop stops at the
-    first one that clears the threshold, so the common case costs one call. The
-    passages are ordered by retrieval score, so the first one asked about is the
-    one most likely to end the loop.
+    Each retrieved passage is asked about separately, every one of them, and
+    the decision rests on the most confident answer. Stopping at the first
+    passage over the bar would save calls, but then the score would depend on
+    the threshold: a 0.7 gate would report 0.95 for a question a 0.96 gate
+    scores 0.99, and a threshold chosen afterwards from the reported scores
+    would not reproduce what the gate decides. A question costs one call per
+    passage, four by default.
+
+    ``client`` is required: the service passes the pooled client its lifespan
+    opened, and a test passes one over a mock transport. Every reply is
+    validated before it is read, and one that is malformed counts as the
+    service being unavailable.
     """
 
     url: str
+    # Plumbing, so two gates asking the same URL the same way are equal.
+    client: httpx.Client = field(compare=False, repr=False)
     min_confidence: float = 0.7
     fallback: RelevanceGate | None = None
-    # The service's pooled client; a connection per call without one. It is
-    # plumbing, so two gates asking the same URL the same way are equal.
-    client: httpx.Client | None = field(default=None, compare=False, repr=False)
 
     def admits(
         self, question: str, passages: tuple[ScoredChunk, ...], filing: IndexedFiling
@@ -187,56 +194,44 @@ class BrierGate:
             )
 
     def _judge(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision:
-        """Ask about each passage, stopping at the first that clears the bar.
+        """Ask about every passage and decide on the most confident answer.
 
-        Evidence already gathered is kept if a later call fails, so one bad
-        request does not throw away a confident yes from an earlier passage.
         A passage that could not be judged marks the decision ``degraded``,
-        because it rests on part of the evidence. A judged confidence of 0.0
-        counts as judged: it is an answer, not the absence of one.
+        because it rests on part of the evidence, and the others still count.
+        A judged confidence of 0.0 counts as judged: it is an answer, not the
+        absence of one.
 
         Raises:
             GateError: when no passage could be judged at all.
         """
-        best_confidence, best_position = 0.0, 1
-        judged, failed = 0, 0
+        judged: dict[int, float] = {}
         last_failure: GateError | None = None
-
         for position, scored in enumerate(passages, start=1):
             try:
-                confidence = self._confidence(question, scored.chunk.text)
+                judged[position] = self._confidence(question, scored.chunk.text)
             except GateError as error:
                 logger.warning("brier could not judge passage %d: %s", position, error)
-                failed, last_failure = failed + 1, error
-                continue
-            judged += 1
-            if confidence > best_confidence:
-                best_confidence, best_position = confidence, position
-            if confidence >= self.min_confidence:
-                return GateDecision(
-                    admitted=True,
-                    confidence=round(confidence, 4),
-                    reason=(
-                        f"passage {position} answers the question with confidence {confidence:.3f}"
-                        + _unjudged_note(failed, judged + failed)
-                    ),
-                    degraded=failed > 0,
-                    scores={BRIER: round(confidence, 4)},
-                )
+                last_failure = error
+        if not judged:
+            raise last_failure or GateError("no passage could be judged")
 
-        if judged == 0 and last_failure is not None:
-            raise last_failure
-
-        return GateDecision(
-            admitted=False,
-            confidence=round(best_confidence, 4),
-            reason=(
+        best_position = max(judged, key=judged.__getitem__)
+        best = judged[best_position]
+        failed = len(passages) - len(judged)
+        unjudged = _unjudged_note(failed, len(passages))
+        if best >= self.min_confidence:
+            said = f"passage {best_position} answers the question with confidence {best:.3f}"
+        else:
+            said = (
                 f"no passage cleared {self.min_confidence}; the closest was "
-                f"passage {best_position} at {best_confidence:.3f}"
-                + _unjudged_note(failed, judged + failed)
-            ),
+                f"passage {best_position} at {best:.3f}"
+            )
+        return GateDecision(
+            admitted=best >= self.min_confidence,
+            confidence=round(best, 4),
+            reason=said + unjudged,
             degraded=failed > 0,
-            scores={BRIER: round(best_confidence, 4)},
+            scores={BRIER: round(best, 4)},
         )
 
     def confidence_for(self, question: str, passage: str) -> float:
@@ -261,8 +256,7 @@ class BrierGate:
             ],
         }
         try:
-            post = self.client.post if self.client is not None else httpx.post
-            response = post(
+            response = self.client.post(
                 f"{self.url.rstrip('/')}/decide", json=payload, timeout=REQUEST_TIMEOUT_SECONDS
             )
             reply = _BrierReply.model_validate_json(response.raise_for_status().content)

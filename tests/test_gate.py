@@ -26,12 +26,9 @@ def _passages(*scores: float) -> tuple[ScoredChunk, ...]:
     )
 
 
-def _posting(handler):
-    def post(url, json, timeout):  # noqa: ARG001 - mirrors httpx.post
-        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-            return client.post(url, json=json)
-
-    return post
+def _client(handler) -> httpx.Client:
+    """A client whose requests ``handler`` answers, with no network behind it."""
+    return httpx.Client(transport=httpx.MockTransport(handler))
 
 
 def _answering(*confidences: float):
@@ -81,24 +78,62 @@ def test_cosine_refuses_when_retrieval_found_nothing():
     assert CosineGate(0.5).admits(QUESTION, (), EXAMPLE).admitted is False
 
 
-def test_brier_stops_at_the_first_passage_that_clears_the_threshold(monkeypatch):
+def test_brier_asks_about_every_passage_and_decides_on_the_most_confident():
+    """It used to stop at the first passage over the bar and report that one."""
     handler, calls = _answering(0.95, 0.99)
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
-    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+    decision = BrierGate("http://brier.test", client, min_confidence=0.7).admits(
         QUESTION, _passages(0.8, 0.7), EXAMPLE
     )
 
     assert decision.admitted is True
-    assert len(calls) == 1
-    assert "passage 1 answers the question" in decision.reason
+    assert len(calls) == 2
+    assert decision.confidence == 0.99
+    assert "passage 2 answers the question with confidence 0.990" in decision.reason
 
 
-def test_brier_keeps_looking_past_a_passage_it_rejects(monkeypatch):
+@pytest.mark.parametrize("threshold", [0.1, 0.7, 0.96, 0.995])
+def test_brier_s_score_is_the_same_whatever_its_threshold(threshold):
+    """A threshold is chosen afterwards from these scores, so they must not depend on one.
+
+    With the early stop, a 0.7 gate scored this question 0.95 and a 0.96 gate
+    scored it 0.99, and no threshold swept over the first score reproduced
+    what the second gate decided.
+    """
+    handler, _ = _answering(0.95, 0.99, 0.2)
+    client = _client(handler)
+
+    decision = BrierGate("http://brier.test", client, min_confidence=threshold).admits(
+        QUESTION, _passages(0.8, 0.7, 0.6), EXAMPLE
+    )
+
+    assert decision.confidence == 0.99
+    assert decision.scores == {"brier": 0.99}
+    assert decision.admitted is (threshold <= 0.99)
+
+
+def test_brier_files_no_score_of_its_own_when_its_fallback_decided():
+    client = _client(lambda request: httpx.Response(503, text="down"))
+
+    decision = BrierGate("http://brier.test", client, fallback=CosineGate(0.5)).admits(
+        QUESTION, _passages(0.8), EXAMPLE
+    )
+
+    assert decision.scores == {"cosine": 0.8}
+
+
+def test_brier_needs_a_client_to_be_built():
+    """The module-level ``httpx.post`` opened a connection per passage, unpooled."""
+    with pytest.raises(TypeError):
+        BrierGate("http://brier.test")  # type: ignore[call-arg]
+
+
+def test_brier_keeps_looking_past_a_passage_it_rejects():
     handler, calls = _answering(0.2, 0.9)
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
-    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+    decision = BrierGate("http://brier.test", client, min_confidence=0.7).admits(
         QUESTION, _passages(0.8, 0.7), EXAMPLE
     )
 
@@ -107,11 +142,11 @@ def test_brier_keeps_looking_past_a_passage_it_rejects(monkeypatch):
     assert "passage 2" in decision.reason
 
 
-def test_brier_refuses_and_reports_the_closest_it_saw(monkeypatch):
+def test_brier_refuses_and_reports_the_closest_it_saw():
     handler, _ = _answering(0.3, 0.55)
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
-    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+    decision = BrierGate("http://brier.test", client, min_confidence=0.7).admits(
         QUESTION, _passages(0.8, 0.7), EXAMPLE
     )
 
@@ -121,19 +156,20 @@ def test_brier_refuses_and_reports_the_closest_it_saw(monkeypatch):
 
 
 def test_brier_refuses_when_retrieval_found_nothing():
-    decision = BrierGate("http://brier.test").admits(QUESTION, (), EXAMPLE)
+    unused = _client(lambda request: httpx.Response(500))
+    decision = BrierGate("http://brier.test", unused).admits(QUESTION, (), EXAMPLE)
 
     assert decision.admitted is False
     assert "nothing to judge" in decision.reason
 
 
-def test_an_unreachable_brier_falls_back_to_cosine_and_says_it_did(monkeypatch):
+def test_an_unreachable_brier_falls_back_to_cosine_and_says_it_did():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, text="down")
 
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
-    decision = BrierGate("http://brier.test", fallback=CosineGate(0.5)).admits(
+    decision = BrierGate("http://brier.test", client, fallback=CosineGate(0.5)).admits(
         QUESTION, _passages(0.8), EXAMPLE
     )
 
@@ -142,27 +178,27 @@ def test_an_unreachable_brier_falls_back_to_cosine_and_says_it_did(monkeypatch):
     assert "degraded" in decision.reason
 
 
-def test_an_unreachable_brier_without_a_fallback_is_an_error(monkeypatch):
+def test_an_unreachable_brier_without_a_fallback_is_an_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, text="down")
 
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
     with pytest.raises(GateError, match="did not answer"):
-        BrierGate("http://brier.test").admits(QUESTION, _passages(0.8), EXAMPLE)
+        BrierGate("http://brier.test", client).admits(QUESTION, _passages(0.8), EXAMPLE)
 
 
-def test_a_malformed_reply_is_treated_as_the_service_being_broken(monkeypatch):
+def test_a_malformed_reply_is_treated_as_the_service_being_broken():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"unexpected": True})
 
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
     with pytest.raises(GateError, match="did not answer"):
-        BrierGate("http://brier.test").admits(QUESTION, _passages(0.8), EXAMPLE)
+        BrierGate("http://brier.test", client).admits(QUESTION, _passages(0.8), EXAMPLE)
 
 
-def test_a_partial_failure_keeps_the_confidence_already_gathered(monkeypatch):
+def test_a_partial_failure_keeps_the_confidence_already_gathered():
     """One bad request used to discard a confident yes from an earlier passage."""
     calls: list[int] = []
 
@@ -187,9 +223,9 @@ def test_a_partial_failure_keeps_the_confidence_already_gathered(monkeypatch):
             )
         return httpx.Response(503, text="down")
 
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
-    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+    decision = BrierGate("http://brier.test", client, min_confidence=0.7).admits(
         QUESTION, _passages(0.8, 0.7), EXAMPLE
     )
 
@@ -200,22 +236,22 @@ def test_a_partial_failure_keeps_the_confidence_already_gathered(monkeypatch):
     assert "1 of 2 passages could not be judged" in decision.reason
 
 
-def test_a_total_failure_still_raises(monkeypatch):
+def test_a_total_failure_still_raises():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, text="down")
 
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
     with pytest.raises(GateError):
-        BrierGate("http://brier.test").admits(QUESTION, _passages(0.8, 0.7), EXAMPLE)
+        BrierGate("http://brier.test", client).admits(QUESTION, _passages(0.8, 0.7), EXAMPLE)
 
 
-def test_the_reason_never_names_a_passage_that_does_not_exist(monkeypatch):
+def test_the_reason_never_names_a_passage_that_does_not_exist():
     """With every confidence at zero the message used to say "passage 0"."""
     handler, _ = _answering(0.0, 0.0)
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
-    decision = BrierGate("http://brier.test").admits(QUESTION, _passages(0.8, 0.7), EXAMPLE)
+    decision = BrierGate("http://brier.test", client).admits(QUESTION, _passages(0.8, 0.7), EXAMPLE)
 
     assert "passage 0" not in decision.reason
     assert "passage 1" in decision.reason
@@ -252,10 +288,10 @@ MALFORMED_REPLIES = {
 
 
 @pytest.mark.parametrize("content", MALFORMED_REPLIES.values(), ids=MALFORMED_REPLIES.keys())
-def test_a_malformed_probability_falls_back_instead_of_crashing(monkeypatch, content):
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(_replying(200, content)))
+def test_a_malformed_probability_falls_back_instead_of_crashing(content):
+    client = _client(_replying(200, content))
 
-    decision = BrierGate("http://brier.test", fallback=CosineGate(0.5)).admits(
+    decision = BrierGate("http://brier.test", client, fallback=CosineGate(0.5)).admits(
         QUESTION, _passages(0.8), EXAMPLE
     )
 
@@ -264,14 +300,14 @@ def test_a_malformed_probability_falls_back_instead_of_crashing(monkeypatch, con
 
 
 @pytest.mark.parametrize("content", MALFORMED_REPLIES.values(), ids=MALFORMED_REPLIES.keys())
-def test_a_malformed_probability_without_a_fallback_is_a_gate_error(monkeypatch, content):
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(_replying(200, content)))
+def test_a_malformed_probability_without_a_fallback_is_a_gate_error(content):
+    client = _client(_replying(200, content))
 
     with pytest.raises(GateError):
-        BrierGate("http://brier.test").admits(QUESTION, _passages(0.8), EXAMPLE)
+        BrierGate("http://brier.test", client).admits(QUESTION, _passages(0.8), EXAMPLE)
 
 
-def test_a_confidence_of_zero_is_an_answer_not_a_missing_one(monkeypatch):
+def test_a_confidence_of_zero_is_an_answer_not_a_missing_one():
     """``not best_confidence`` used to read a judged 0.0 as nothing judged."""
     calls: list[int] = []
     zero = b'{"answers": [{"probabilities": [1.0, 0.0]}]}'
@@ -282,9 +318,9 @@ def test_a_confidence_of_zero_is_an_answer_not_a_missing_one(monkeypatch):
             return _replying(200, zero)(request)
         return httpx.Response(503, text="down")
 
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
-    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+    decision = BrierGate("http://brier.test", client, min_confidence=0.7).admits(
         QUESTION, _passages(0.8, 0.7), EXAMPLE
     )
 
@@ -293,7 +329,7 @@ def test_a_confidence_of_zero_is_an_answer_not_a_missing_one(monkeypatch):
     assert decision.degraded is True
 
 
-def test_an_admission_after_a_failed_passage_is_still_marked_degraded(monkeypatch):
+def test_an_admission_after_a_failed_passage_is_still_marked_degraded():
     calls: list[int] = []
     confident = b'{"answers": [{"probabilities": [0.1, 0.9]}]}'
 
@@ -303,9 +339,9 @@ def test_an_admission_after_a_failed_passage_is_still_marked_degraded(monkeypatc
             return httpx.Response(503, text="down")
         return _replying(200, confident)(request)
 
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
-    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+    decision = BrierGate("http://brier.test", client, min_confidence=0.7).admits(
         QUESTION, _passages(0.8, 0.7), EXAMPLE
     )
 
@@ -313,27 +349,27 @@ def test_an_admission_after_a_failed_passage_is_still_marked_degraded(monkeypatc
     assert decision.degraded is True
 
 
-def test_a_fully_judged_refusal_is_not_degraded(monkeypatch):
+def test_a_fully_judged_refusal_is_not_degraded():
     handler, _ = _answering(0.3, 0.55)
-    monkeypatch.setattr(gate_module.httpx, "post", _posting(handler))
+    client = _client(handler)
 
-    decision = BrierGate("http://brier.test", min_confidence=0.7).admits(
+    decision = BrierGate("http://brier.test", client, min_confidence=0.7).admits(
         QUESTION, _passages(0.8, 0.7), EXAMPLE
     )
 
     assert decision.degraded is False
 
 
-def test_the_degraded_reason_names_no_url_and_no_exception(monkeypatch, caplog):
+def test_the_degraded_reason_names_no_url_and_no_exception(caplog):
     """Adversarial case 14: the reason reaches the client, the detail only the log."""
 
-    def post(url, json, timeout):
-        raise httpx.ConnectError("[Errno 61] Connection refused")
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("[Errno 61] Connection refused", request=request)
 
-    monkeypatch.setattr(gate_module.httpx, "post", post)
+    client = _client(handler)
 
     with caplog.at_level(logging.WARNING, logger="edgar_rag.gate"):
-        decision = BrierGate("http://localhost:8100", fallback=CosineGate(0.5)).admits(
+        decision = BrierGate("http://localhost:8100", client, fallback=CosineGate(0.5)).admits(
             QUESTION, _passages(0.8), EXAMPLE
         )
 
@@ -344,7 +380,7 @@ def test_the_degraded_reason_names_no_url_and_no_exception(monkeypatch, caplog):
     assert "Connection refused" in caplog.text
 
 
-def test_brier_given_a_client_asks_through_it(monkeypatch):
+def test_brier_asks_through_the_client_it_was_given(monkeypatch):
     def refuse(*args, **kwargs):
         raise AssertionError("the module-level httpx.post was used instead of the client")
 
@@ -352,9 +388,7 @@ def test_brier_given_a_client_asks_through_it(monkeypatch):
     handler, calls = _answering(0.9)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        decision = BrierGate("http://brier.test", client=client).admits(
-            QUESTION, _passages(0.6), EXAMPLE
-        )
+        decision = BrierGate("http://brier.test", client).admits(QUESTION, _passages(0.6), EXAMPLE)
 
     assert decision.admitted is True
     assert calls == ["passage 1"]
@@ -362,7 +396,9 @@ def test_brier_given_a_client_asks_through_it(monkeypatch):
 
 def test_the_client_does_not_take_part_in_comparing_gates():
     with httpx.Client() as client:
-        assert BrierGate("http://brier.test", client=client) == BrierGate("http://brier.test")
+        assert BrierGate("http://brier.test", client) == BrierGate(
+            "http://brier.test", httpx.Client()
+        )
 
 
 def test_a_decision_s_scores_cannot_be_changed_after_it_is_returned():

@@ -9,6 +9,8 @@ words are nearby. This script measures whether the model gate can.
 import argparse
 from dataclasses import dataclass
 
+import httpx
+
 from edgar_rag.config import EvalSettings
 from edgar_rag.domain import DEFAULT_TOP_K, IndexedFiling, Scope
 from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
@@ -129,6 +131,11 @@ def main() -> int:
     parser.add_argument("--brier-confidence", type=float, default=0.7)
     arguments = parser.parse_args()
 
+    with httpx.Client() as client:
+        return _compare(arguments, client)
+
+
+def _compare(arguments: argparse.Namespace, client: httpx.Client) -> int:
     settings = EvalSettings()
     embedder = OllamaEmbedder(str(settings.ollama_base_url), settings.embedding_model)
     index = CorpusIndex.load(settings.index_dir, embedder.spec)
@@ -147,7 +154,7 @@ def main() -> int:
             embedder,
         ),
         run(
-            BrierGate(arguments.brier_url, min_confidence=arguments.brier_confidence),
+            BrierGate(arguments.brier_url, client, min_confidence=arguments.brier_confidence),
             f"brier >= {arguments.brier_confidence}",
             index,
             filing,
@@ -165,14 +172,14 @@ def main() -> int:
             f"{score.admitted_unanswerable}/{score.total_unanswerable} "
             f"({score.false_admissions:.0%})"
         )
-    _sweeps(index, embedder, arguments)
+    _sweeps(index, embedder, arguments, client)
     return 0
 
 
-def _sweeps(index: CorpusIndex, embedder, arguments) -> None:
+def _sweeps(index: CorpusIndex, embedder, arguments, client: httpx.Client) -> None:
     """Collect the raw score each gate assigns, then sweep both."""
     cosine_scores, brier_scores = {}, {}
-    brier = BrierGate(arguments.brier_url, min_confidence=0.0)
+    brier = BrierGate(arguments.brier_url, client, min_confidence=0.0)
 
     for case in CASES:
         passages = index.search(embedder.embed((case.question,)), SCOPE, top_k=DEFAULT_TOP_K)
