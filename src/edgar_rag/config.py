@@ -7,16 +7,16 @@ EDGAR and does not ask for a User-Agent. Every variable carries the
 """
 
 from pathlib import Path
-from typing import Literal, Self
+from typing import Literal
 
-from pydantic import Field, HttpUrl, field_validator, model_validator
+from pydantic import Field, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from edgar_rag.edgar.user_agent import validate_user_agent
 
 LOCAL_OLLAMA = HttpUrl("http://localhost:11434")
 
-GateChoice = Literal["none", "cosine", "period+cosine", "brier", "period+brier"]
+GateChoice = Literal["none", "cosine", "period+cosine"]
 """Which checks run before the model is asked: none, a relevance gate, or the
 period guard in front of one."""
 
@@ -49,20 +49,14 @@ class ServiceSettings(_SharedSettings):
     ``gate`` picks the checks that run before the model is asked. The default,
     ``period+cosine``, declines a question about a year the filing does not
     report and then one whose closest passage is not close enough; it needs
-    nothing but the index, so anyone can run it. ``brier`` and
-    ``period+brier`` judge relevance with a calibrated model at ``brier_url``
-    instead, with cosine as the fallback when that service is unreachable.
-    ``none`` asks the model every time and leaves the refusal to it.
-
-    A ``brier_url`` is required by the brier gates and refused by the others,
-    so a URL that would be silently ignored stops the service instead.
+    nothing but the index, so anyone can run it. ``none`` asks the model
+    every time and leaves the refusal to it.
 
     ``mode=replay`` answers without a model: the question embeddings and the
     generations come from the tape at ``replay_tape``, recorded by the
     evaluation over the golden set at ``replay_questions``, and only those
     questions can be asked. The index, the search, the gate and the citation
-    check run as they do live. Brier is not on the CI tape, so replay refuses
-    the brier gates.
+    check run as they do live.
     """
 
     generation_model: str = "qwen3:32b"
@@ -71,8 +65,6 @@ class ServiceSettings(_SharedSettings):
     replay_tape: Path = CI_TAPE
     replay_questions: Path = GOLDEN_SET
     min_retrieval_score: float = Field(default=0.55, ge=0.0, le=1.0)
-    brier_url: HttpUrl | None = None
-    brier_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
 
     # A generation holds the GPU for about twenty seconds, so a third one at
     # the same time only makes all of them slower. Past this many, /ask
@@ -82,20 +74,6 @@ class ServiceSettings(_SharedSettings):
 
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
-
-    @model_validator(mode="after")
-    def _brier_url_matches_the_gate(self) -> Self:
-        uses_brier = self.gate.endswith("brier")
-        if uses_brier and self.brier_url is None:
-            raise ValueError(f"EDGAR_RAG_GATE={self.gate} needs EDGAR_RAG_BRIER_URL")
-        if not uses_brier and self.brier_url is not None:
-            raise ValueError(
-                f"EDGAR_RAG_BRIER_URL is set but EDGAR_RAG_GATE={self.gate} does not use it; "
-                "choose brier or period+brier, or unset the URL"
-            )
-        if uses_brier and self.mode == "replay":
-            raise ValueError(f"EDGAR_RAG_MODE=replay has no brier on its tape: {self.gate}")
-        return self
 
 
 class IngestSettings(_SharedSettings):
@@ -126,13 +104,7 @@ class EvalSettings(_SharedSettings):
     """Settings for running the evaluation over an existing index.
 
     No threshold is configured here: the evaluation scores every gate and
-    fits each threshold from the scores (see ``eval.arms``). ``brier_url`` is
-    optional, because brier is a private plugin; without it the arms that need
-    it are reported as not run. ``brier_sha`` is the commit the plugin was
-    built from, stated by whoever runs it, since the service does not report
-    one.
+    fits each threshold from the scores (see ``eval.arms``).
     """
 
     generation_model: str = "qwen3:32b"
-    brier_url: HttpUrl | None = None
-    brier_sha: str | None = None

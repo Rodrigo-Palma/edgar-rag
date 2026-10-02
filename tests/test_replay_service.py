@@ -4,9 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 
 from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import Generation, NotRecorded, Scope
@@ -98,9 +96,3 @@ def test_a_live_service_says_it_is_live_and_that_nothing_was_replayed(index):
 
     assert answer["replayed"] is False
     assert health["mode"] == "live"
-
-
-@pytest.mark.parametrize("gate", ["brier", "period+brier"])
-def test_replay_refuses_a_brier_gate_since_the_tape_has_no_brier(gate):
-    with pytest.raises(ValidationError, match="no brier on its tape"):
-        ServiceSettings(mode="replay", gate=gate, brier_url="http://brier.local")

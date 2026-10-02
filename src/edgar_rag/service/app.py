@@ -34,7 +34,7 @@ from edgar_rag.domain import (
     RelevanceGate,
     Scope,
 )
-from edgar_rag.gate import AllOf, BrierGate, CosineGate, NoGate
+from edgar_rag.gate import AllOf, CosineGate, NoGate
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import LOWERCASE_INPUT, OllamaEmbedder, OllamaGenerator, OllamaProbe
 from edgar_rag.period import PeriodGuard
@@ -106,12 +106,8 @@ def with_generation_limit(answerer: ServedAnswerer, limit: int) -> ServedAnswere
     return dataclasses.replace(answerer, generator=slots)
 
 
-def build_gate(settings: ServiceSettings, client: httpx.Client) -> RelevanceGate:
-    """The checks ``EDGAR_RAG_GATE`` names, the period guard first when it is one.
-
-    Brier always has cosine behind it, so an outage degrades the answer
-    rather than failing it.
-    """
+def build_gate(settings: ServiceSettings) -> RelevanceGate:
+    """The checks ``EDGAR_RAG_GATE`` names, the period guard first when it is one."""
     cosine = CosineGate(min_score=settings.min_retrieval_score)
     match settings.gate:
         case "none":
@@ -120,23 +116,8 @@ def build_gate(settings: ServiceSettings, client: httpx.Client) -> RelevanceGate
             return cosine
         case "period+cosine":
             return AllOf(PeriodGuard(), cosine)
-        case "brier":
-            return _brier(settings, cosine, client)
-        case "period+brier":
-            return AllOf(PeriodGuard(), _brier(settings, cosine, client))
         case unknown:
             assert_never(unknown)
-
-
-def _brier(settings: ServiceSettings, fallback: CosineGate, client: httpx.Client) -> BrierGate:
-    if settings.brier_url is None:
-        raise ValueError(f"EDGAR_RAG_GATE={settings.gate} needs EDGAR_RAG_BRIER_URL")
-    return BrierGate(
-        url=str(settings.brier_url),
-        client=client,
-        min_confidence=settings.brier_min_confidence,
-        fallback=fallback,
-    )
 
 
 def build_answerer(
@@ -162,7 +143,7 @@ def build_answerer(
             index=replay.index,
             embedder=replay.embedder,
             generator=replay.generator,
-            gate=build_gate(settings, client),
+            gate=build_gate(settings),
         )
     spec = EmbedderSpec(model=settings.embedding_model, lowercase=LOWERCASE_INPUT)
     try:
@@ -186,7 +167,7 @@ def build_answerer(
         index=index,
         embedder=embedder,
         generator=OllamaGenerator(ollama, settings.generation_model, client=client),
-        gate=build_gate(settings, client),
+        gate=build_gate(settings),
     )
 
 
@@ -216,8 +197,8 @@ def create_app(
 
     ``answerer`` replaces the one built from ``settings``, so a test can
     serve fakes through the real endpoints. ``transport`` is handed to the
-    HTTP client the lifespan opens, so a test can stand in for Ollama and
-    brier without a network. ``replay`` serves recorded replies instead of
+    HTTP client the lifespan opens, so a test can stand in for Ollama
+    without a network. ``replay`` serves recorded replies instead of
     Ollama, and answers only the questions it recorded.
     """
     config = settings if settings is not None else ServiceSettings()

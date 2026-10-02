@@ -56,10 +56,9 @@ def test_an_unreachable_server_is_reported_as_unknown_not_raised():
     with _client(down) as client:
         assert provenance.ollama_model(client, "http://o", "m").digest is None
         assert provenance.ollama_version(client, "http://o") is None
-        assert provenance.brier_ready(client, "http://b") is None
 
 
-def test_ollama_version_and_brier_readiness_are_read_from_their_endpoints():
+def test_ollama_version_is_read_from_its_endpoint():
     def serve(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/version":
             return httpx.Response(200, json={"version": "0.18.0"})
@@ -67,7 +66,6 @@ def test_ollama_version_and_brier_readiness_are_read_from_their_endpoints():
 
     with _client(serve) as client:
         assert provenance.ollama_version(client, "http://o/") == "0.18.0"
-        assert provenance.brier_ready(client, "http://b") is None
 
 
 def test_the_hardware_is_named():

@@ -6,6 +6,7 @@ import pytest
 from edgar_rag import cli
 from edgar_rag.eval import provenance
 from edgar_rag.eval.records import read_run
+from edgar_rag.eval.replay import BRIER, BRIER_PATH, Tape, brier_request
 from tests.eval import harness_fakes as world
 
 MODELS = {
@@ -27,8 +28,6 @@ class FakeOllama:
         path = request.url.path
         if path == "/api/version":
             return httpx.Response(200, json={"version": "0.18.0"})
-        if path == "/ready":
-            return httpx.Response(200, json={"status": "ready", "weights": "test"})
         if path == "/api/tags":
             models = json.loads(json.dumps(MODELS))
             models["models"][1]["digest"] = self.digest
@@ -37,10 +36,6 @@ class FakeOllama:
         if path == "/api/embed":
             table = {question.lower(): vector for question, vector in world.VECTORS.items()}
             return httpx.Response(200, json={"embeddings": [table[t] for t in body["input"]]})
-        if path == "/decide":
-            # Brier: confident only about the passage that holds the revenue.
-            yes = 0.9 if "391,035" in body["state"] else 0.1
-            return httpx.Response(200, json={"answers": [{"probabilities": [1 - yes, yes]}]})
         if path == "/api/generate":
             self.generations += 1
             reply = {"response": world.ANSWER, "prompt_eval_count": 50, "eval_count": 9}
@@ -52,7 +47,7 @@ class FakeOllama:
 def setup(tmp_path, monkeypatch):
     """A golden root, an index and a clean environment, in a temporary directory."""
     monkeypatch.chdir(tmp_path)
-    for name in ("EDGAR_RAG_BRIER_URL", "EDGAR_RAG_INDEX_DIR", "EDGAR_RAG_GENERATION_MODEL"):
+    for name in ("EDGAR_RAG_INDEX_DIR", "EDGAR_RAG_GENERATION_MODEL"):
         monkeypatch.delenv(name, raising=False)
     root = world.write_root(tmp_path / "eval")
     world.index().save(tmp_path / "index")
@@ -202,27 +197,52 @@ def test_a_report_of_a_missing_run_fails_cleanly(setup, capsys):
     assert "run:" in capsys.readouterr().err
 
 
-def test_brier_scores_are_recorded_and_replayed_when_the_plugin_is_set(setup, monkeypatch, capsys):
+def _add_brier(tape_dir) -> None:
+    """Brier's replies to every question about every passage, as a frozen run's tape holds.
+
+    Confident only about the passage that holds the revenue.
+    """
+    tape = Tape.open(tape_dir)
+    for question in world.VECTORS:
+        for chunk in world.CHUNKS:
+            call = {"path": BRIER_PATH, "body": brier_request(question, chunk.text)}
+            key, _ = tape.lookup(BRIER, call)
+            yes = 0.9 if "391,035" in chunk.text else 0.1
+            reply = {"status": 200, "body": {"answers": [{"probabilities": [1 - yes, yes]}]}}
+            tape.record(BRIER, key, call, reply)
+    tape.save({**tape.meta, "brier": {"sha": "d70e7df", "ready": {"status": "ready"}}})
+
+
+def test_brier_scores_on_a_frozen_tape_are_replayed(setup, monkeypatch, capsys):
     tmp_path, root = setup
     _serve(monkeypatch, FakeOllama())
-    monkeypatch.setenv("EDGAR_RAG_BRIER_URL", "http://127.0.0.1:8100")
-    monkeypatch.setenv("EDGAR_RAG_BRIER_SHA", "d70e7df")
-
     assert _run(tmp_path, root, "--out", "recorded", "--tape", "tape") == 0
-    monkeypatch.delenv("EDGAR_RAG_BRIER_URL")
+    _add_brier(tmp_path / "tape")
     _serve(monkeypatch, lambda request: httpx.Response(599))
+
     assert _run(tmp_path, root, "--out", "replayed", "--tape", "tape", "--mode", "replay") == 0
 
-    recorded, replayed = read_run(tmp_path / "recorded"), read_run(tmp_path / "replayed")
-    assert recorded.manifest.gates == ("period", "cosine", "brier")
-    assert recorded.manifest.brier is not None and recorded.manifest.brier.sha == "d70e7df"
-    assert recorded.manifest.brier.ready == {"status": "ready", "weights": "test"}
-    assert [r.scores for r in replayed.cases] == [r.scores for r in recorded.cases]
-    assert recorded.cases[0].scores["brier"] == 0.9
-    assert replayed.manifest.brier == recorded.manifest.brier
+    replayed = read_run(tmp_path / "replayed")
+    assert replayed.manifest.gates == ("period", "cosine", "brier")
+    assert replayed.manifest.brier is not None and replayed.manifest.brier.sha == "d70e7df"
+    assert {r.id: r.scores["brier"] for r in replayed.cases}["revenue:EX:2024"] == 0.9
     capsys.readouterr()
     cli.main(["eval", "report", "--run", "replayed"])
     assert "| C brier | not run" not in capsys.readouterr().out
+
+
+def test_a_recording_never_scores_brier_even_on_a_tape_that_holds_it(setup, monkeypatch):
+    tmp_path, root = setup
+    _serve(monkeypatch, FakeOllama())
+    assert _run(tmp_path, root, "--out", "first", "--tape", "tape") == 0
+    _add_brier(tmp_path / "tape")
+
+    assert _run(tmp_path, root, "--out", "again", "--tape", "tape") == 0
+
+    again = read_run(tmp_path / "again")
+    assert again.manifest.gates == ("period", "cosine")
+    assert again.manifest.brier is None
+    assert all("brier" not in r.scores for r in again.cases)
 
 
 def test_the_commit_is_read_before_the_run_starts_not_after(setup, monkeypatch):

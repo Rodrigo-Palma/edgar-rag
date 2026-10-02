@@ -2,41 +2,17 @@
 
 The gate is separate from the answering because it is the part most worth
 swapping. The cheap version compares the question to the passage with cosine
-similarity, which is free but only measures that the words are nearby. The other
-version asks a model trained for the question, which costs a call and reports a
-calibrated confidence.
+similarity, which is free but only measures that the words are nearby. A
+calibrated relevance model was measured against it on the headline run and
+removed for ranking worse (ADR-0014).
 """
 
-import logging
-from dataclasses import dataclass, field
-from typing import Annotated
-
-import httpx
-from pydantic import BaseModel, Field, ValidationError
+from dataclasses import dataclass
 
 from edgar_rag.domain import GateDecision, IndexedFiling, RelevanceGate, ScoredChunk
 
-REQUEST_TIMEOUT_SECONDS = 30.0
-# What a client sees when the brier service failed. The URL and the exception
-# go to the log only: the reason is returned to whoever asked the question.
-UNAVAILABLE_REASON = "relevance model unavailable"
-
-# The names each gate files its score under in ``GateDecision.scores``.
+# The name the cosine gate files its score under in ``GateDecision.scores``.
 COSINE = "cosine"
-BRIER = "brier"
-
-logger = logging.getLogger(__name__)
-
-Probability = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False, strict=True)]
-
-
-class _BrierAnswer(BaseModel):
-    # One probability per option, in the order sent: ["no", "yes"]
-    probabilities: Annotated[list[Probability], Field(min_length=2, max_length=2)]
-
-
-class _BrierReply(BaseModel):
-    answers: Annotated[list[_BrierAnswer], Field(min_length=1)]
 
 
 class GateError(RuntimeError):
@@ -138,127 +114,3 @@ class CosineGate:
             reason=f"best passage scored {best:.3f}",
             scores=scores,
         )
-
-
-@dataclass(frozen=True, slots=True)
-class BrierGate:
-    """Ask a calibrated decision model whether a passage answers the question.
-
-    Each retrieved passage is asked about separately, every one of them, and
-    the decision rests on the most confident answer. Stopping at the first
-    passage over the bar would save calls, but then the score would depend on
-    the threshold: a 0.7 gate would report 0.95 for a question a 0.96 gate
-    scores 0.99, and a threshold chosen afterwards from the reported scores
-    would not reproduce what the gate decides. A question costs one call per
-    passage, four by default.
-
-    ``client`` is required: the service passes the pooled client its lifespan
-    opened, and a test passes one over a mock transport. Every reply is
-    validated before it is read, and one that is malformed counts as the
-    service being unavailable.
-    """
-
-    url: str
-    # Plumbing, so two gates asking the same URL the same way are equal.
-    client: httpx.Client = field(compare=False, repr=False)
-    min_confidence: float = 0.7
-    fallback: RelevanceGate | None = None
-
-    def admits(
-        self, question: str, passages: tuple[ScoredChunk, ...], filing: IndexedFiling
-    ) -> GateDecision:
-        """Judge the passages, falling back only if a fallback was given.
-
-        Raises:
-            GateError: when the service is unreachable and no fallback was set.
-        """
-        if not passages:
-            return GateDecision(
-                False, 0.0, "retrieval returned nothing to judge", scores={BRIER: 0.0}
-            )
-
-        try:
-            return self._judge(question, passages)
-        except GateError as error:
-            if self.fallback is None:
-                raise
-            logger.warning("brier gate failed, using the fallback: %s", error)
-            fell_back = self.fallback.admits(question, passages, filing)
-            return GateDecision(
-                admitted=fell_back.admitted,
-                confidence=fell_back.confidence,
-                reason=f"{fell_back.reason} (degraded: {UNAVAILABLE_REASON}, fallback used)",
-                degraded=True,
-                rejection=fell_back.rejection,
-                scores=fell_back.scores,
-            )
-
-    def _judge(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision:
-        """Ask about every passage and decide on the most confident answer.
-
-        A passage that could not be judged marks the decision ``degraded``,
-        because it rests on part of the evidence, and the others still count.
-        A judged confidence of 0.0 counts as judged: it is an answer, not the
-        absence of one.
-
-        Raises:
-            GateError: when no passage could be judged at all.
-        """
-        judged: dict[int, float] = {}
-        last_failure: GateError | None = None
-        for position, scored in enumerate(passages, start=1):
-            try:
-                judged[position] = self._confidence(question, scored.chunk.text)
-            except GateError as error:
-                logger.warning("brier could not judge passage %d: %s", position, error)
-                last_failure = error
-        if not judged:
-            raise last_failure or GateError("no passage could be judged")
-
-        best_position = max(judged, key=judged.__getitem__)
-        best = judged[best_position]
-        failed = len(passages) - len(judged)
-        unjudged = _unjudged_note(failed, len(passages))
-        if best >= self.min_confidence:
-            said = f"passage {best_position} answers the question with confidence {best:.3f}"
-        else:
-            said = (
-                f"no passage cleared {self.min_confidence}; the closest was "
-                f"passage {best_position} at {best:.3f}"
-            )
-        return GateDecision(
-            admitted=best >= self.min_confidence,
-            confidence=round(best, 4),
-            reason=said + unjudged,
-            degraded=failed > 0,
-            scores={BRIER: round(best, 4)},
-        )
-
-    def _confidence(self, question: str, passage: str) -> float:
-        """The probability the model puts on "yes"."""
-        payload = {
-            "state": passage,
-            "questions": [
-                {
-                    "name": "relevance",
-                    "kind": "bool",
-                    "prompt": f"Does the passage answer this question: {question}",
-                    "options": ["no", "yes"],
-                }
-            ],
-        }
-        try:
-            response = self.client.post(
-                f"{self.url.rstrip('/')}/decide", json=payload, timeout=REQUEST_TIMEOUT_SECONDS
-            )
-            reply = _BrierReply.model_validate_json(response.raise_for_status().content)
-        except (httpx.HTTPError, ValidationError) as error:
-            raise GateError(f"{self.url} did not answer: {error}") from error
-        return reply.answers[0].probabilities[1]
-
-
-def _unjudged_note(failed: int, asked: int) -> str:
-    """Say how much of the evidence is missing, without saying why."""
-    if not failed:
-        return ""
-    return f"; {failed} of {asked} passages could not be judged ({UNAVAILABLE_REASON})"

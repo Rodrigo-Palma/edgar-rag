@@ -1,13 +1,14 @@
 """``edgar-rag eval run`` and ``edgar-rag eval report``: the composition root of the harness.
 
-``run`` wires the production ``Answerer`` to the index, to Ollama (live, or
-through a tape) and to brier when it is plugged in, asks every case of a split
-and writes a run directory. ``report`` turns a run directory into markdown and
-needs nothing else.
+``run`` wires the production ``Answerer`` to the index and to Ollama (live,
+or through a tape), asks every case of a split and writes a run directory. A
+replay of a tape that holds brier scores (the frozen headline run's) scores
+brier too; nothing else does, since its gate was removed (ADR-0014).
+``report`` turns a run directory into markdown and needs nothing else.
 
 Modes: ``record`` (the default) answers from the tape when it can and calls
 the models for the rest, appending to the tape; ``replay`` uses the tape only,
-so it runs without Ollama or brier and fails on a miss; ``live`` uses no tape.
+so it runs without Ollama and fails on a miss; ``live`` uses no tape.
 
 The eval split is held out for the pre-registered round: ``run --split eval``
 refuses to start without ``--protocol`` naming the committed protocol, whose
@@ -51,9 +52,9 @@ from edgar_rag.eval.replay import (
     BRIER,
     GENERATION_KEY_OPTIONS,
     Tape,
+    TapedBrierScores,
     TapedEmbedder,
     TapedGenerator,
-    TapedTransport,
     TapeMiss,
 )
 from edgar_rag.eval.report import DEFAULT_CONFIRMATORY_CONFIDENCE, ReportOptions, build_report
@@ -64,7 +65,7 @@ from edgar_rag.eval.runner import (
     repeat_order,
     run_cases,
 )
-from edgar_rag.gate import AllOf, BrierGate, CosineGate, GateError
+from edgar_rag.gate import AllOf, CosineGate, GateError
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import (
     LOWERCASE_INPUT,
@@ -78,7 +79,6 @@ from edgar_rag.period import PeriodGuard
 FAILED = 1
 RUN_HELP = "ask a split's golden set through the answerer and write a run directory"
 REPORT_HELP = "print the markdown report of a run directory (no model, no network)"
-TAPED_BRIER_URL = "http://brier.tape"
 
 
 def add_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -171,8 +171,8 @@ def _run(args: argparse.Namespace, settings: EvalSettings) -> int:
     index = CorpusIndex.load(args.index_dir or settings.index_dir, expect=spec)
     tape = Tape.open(tape_dir) if args.mode != "live" else None
     out.mkdir(parents=True, exist_ok=True)
-    with _clients(args.mode, settings, tape) as (ollama, brier_client):
-        wiring = _wire(args, settings, spec, index, tape, ollama, brier_client)
+    with _ollama_client(args.mode) as ollama:
+        wiring = _wire(args, settings, spec, index, tape, ollama)
         harness = Harness(
             Answerer(
                 index=CapturingIndex(index),
@@ -215,24 +215,13 @@ def _questions(
 
 
 @contextmanager
-def _clients(
-    mode: str, settings: EvalSettings, tape: Tape | None
-) -> Iterator[tuple[httpx.Client | None, httpx.Client | None]]:
-    """The Ollama client (none in replay) and the brier client (none without brier)."""
-    ollama = None if mode == "replay" else httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS)
-    brier = None
-    if tape is not None and mode == "replay" and tape.has(BRIER):
-        brier = httpx.Client(transport=TapedTransport(tape))
-    elif mode != "replay" and settings.brier_url is not None:
-        live = httpx.HTTPTransport()
-        transport = TapedTransport(tape, live=live) if tape is not None else live
-        brier = httpx.Client(transport=transport)
-    try:
-        yield ollama, brier
-    finally:
-        for client in (ollama, brier):
-            if client is not None:
-                client.close()
+def _ollama_client(mode: str) -> Iterator[httpx.Client | None]:
+    """The client Ollama is asked through; none in replay."""
+    if mode == "replay":
+        yield None
+        return
+    with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+        yield client
 
 
 def _wire(
@@ -242,16 +231,14 @@ def _wire(
     index: CorpusIndex,
     tape: Tape | None,
     ollama: httpx.Client | None,
-    brier_client: httpx.Client | None,
 ) -> _Wiring:
     gate_list: list[RelevanceGate] = [PeriodGuard(), CosineGate(min_score=0.0)]
     names = ["period", "cosine"]
     brier = None
-    if brier_client is not None:
-        url = TAPED_BRIER_URL if ollama is None else str(settings.brier_url)
-        gate_list.append(BrierGate(url=url, client=brier_client, min_confidence=0.0))
+    if ollama is None and tape is not None and tape.has(BRIER):
+        gate_list.append(TapedBrierScores(tape))
         names.append("brier")
-        brier = _brier_info(settings, tape, brier_client, url, live=ollama is not None)
+        brier = BrierInfo.model_validate(tape.meta.get("brier") or {"sha": None, "ready": None})
     gates = AllOf(*gate_list)
     if ollama is None:
         return _replay_wiring(args, spec, cast(Tape, tape), gates, brier, tuple(names))
@@ -319,14 +306,6 @@ def _check_tape_models(tape: Tape, embedding: ModelInfo, generation: ModelInfo) 
                 f"{tape.root} was recorded with {live.name} {recorded.get('digest')}, "
                 f"and Ollama now serves {live.digest}; record into a fresh tape"
             )
-
-
-def _brier_info(
-    settings: EvalSettings, tape: Tape | None, client: httpx.Client, url: str, live: bool
-) -> BrierInfo:
-    if not live and tape is not None:
-        return BrierInfo.model_validate(tape.meta.get("brier") or {"sha": None, "ready": None})
-    return BrierInfo(sha=settings.brier_sha, ready=provenance.brier_ready(client, url))
 
 
 def _tape_meta(wiring: _Wiring) -> dict[str, Any]:

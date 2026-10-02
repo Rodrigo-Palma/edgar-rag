@@ -1,22 +1,23 @@
 import json
 
-import httpx
 import numpy as np
 import pytest
 
-from edgar_rag.domain import EmbedderSpec, Generation, NotRecorded
+from edgar_rag.domain import Chunk, EmbedderSpec, Generation, NotRecorded, ScoredChunk
 from edgar_rag.eval.replay import (
     BRIER,
+    BRIER_PATH,
     EMBED,
     GENERATE,
     Tape,
+    TapedBrierScores,
     TapedEmbedder,
     TapedGenerator,
-    TapedTransport,
     TapeMiss,
+    brier_request,
     tape_key,
 )
-from tests.fakes import FakeEmbedder, FakeGenerator
+from tests.fakes import EXAMPLE, FakeEmbedder, FakeGenerator
 
 SPEC = EmbedderSpec(model="nomic-embed-text", lowercase=True)
 OPTIONS = {"temperature": 0, "seed": 0, "num_ctx": 8192, "think": False}
@@ -131,21 +132,84 @@ def test_a_git_lfs_pointer_in_place_of_a_tape_file_says_to_pull_it(tmp_path):
         Tape.open(tmp_path)
 
 
-def _brier(request: httpx.Request) -> httpx.Response:
-    return httpx.Response(200, json={"answers": [{"probabilities": [0.2, 0.8]}]})
+QUESTION = "what does the company design?"
 
 
-def test_brier_replays_from_the_body_whatever_the_host(tmp_path):
-    tape = Tape.open(tmp_path)
-    body = {"state": "passage", "questions": [{"name": "relevance"}]}
-    with httpx.Client(transport=TapedTransport(tape, live=httpx.MockTransport(_brier))) as client:
-        recorded = client.post("http://127.0.0.1:8100/decide", json=body).json()
+def _passages(*scores: float) -> tuple[ScoredChunk, ...]:
+    """Passages whose text is ``passage <n>``, retrieved with the given scores."""
+    return tuple(
+        ScoredChunk(
+            chunk=Chunk(chunk_id=f"c{n}", item=f"Item {n}", title="t", text=f"passage {n}"),
+            score=score,
+        )
+        for n, score in enumerate(scores, start=1)
+    )
+
+
+def _brier_tape(root, *replies: tuple[int, object]) -> Tape:
+    """A tape holding brier's reply to passage n of ``_passages`` as replies[n-1]."""
+    tape = Tape.open(root)
+    for position, (status, body) in enumerate(replies, start=1):
+        call = {"path": BRIER_PATH, "body": brier_request(QUESTION, f"passage {position}")}
+        key, _ = tape.lookup(BRIER, call)
+        tape.record(BRIER, key, call, {"status": status, "body": body})
     tape.save({})
+    return Tape.open(root)
 
-    replay = TapedTransport(Tape.open(tmp_path))
-    with httpx.Client(transport=replay) as client:
-        replayed = client.post("http://elsewhere:9/decide", json=body)
-        assert replayed.json() == recorded
-        with pytest.raises(TapeMiss, match="re-record locally"):
-            client.post("http://elsewhere:9/decide", json={**body, "state": "other"})
-    assert Tape.open(tmp_path).has(BRIER)
+
+def _yes(confidence: float) -> tuple[int, object]:
+    return 200, {"answers": [{"probabilities": [1 - confidence, confidence]}]}
+
+
+def test_brier_replays_the_most_confident_passage_and_admits_whatever_it_scored(tmp_path):
+    tape = _brier_tape(tmp_path, _yes(0.3), _yes(0.95), _yes(0.0))
+
+    decision = TapedBrierScores(tape).admits(QUESTION, _passages(0.8, 0.7, 0.6), EXAMPLE)
+
+    assert decision.admitted is True
+    assert decision.scores == {"brier": 0.95}
+    assert decision.degraded is False
+
+
+def test_a_recorded_confidence_of_zero_is_an_answer_not_a_missing_one(tmp_path):
+    tape = _brier_tape(tmp_path, _yes(0.0))
+
+    decision = TapedBrierScores(tape).admits(QUESTION, _passages(0.8), EXAMPLE)
+
+    assert decision.scores == {"brier": 0.0}
+    assert decision.degraded is False
+
+
+@pytest.mark.parametrize(
+    "failed",
+    [(503, {"detail": "down"}), (200, {"answers": [{"probabilities": [0.5, 1.5]}]})],
+    ids=["error status", "malformed probability"],
+)
+def test_a_recorded_failure_leaves_its_passage_unjudged_and_the_decision_degraded(tmp_path, failed):
+    tape = _brier_tape(tmp_path, failed, _yes(0.4))
+
+    decision = TapedBrierScores(tape).admits(QUESTION, _passages(0.8, 0.7), EXAMPLE)
+
+    assert decision.scores == {"brier": 0.4}
+    assert decision.degraded is True
+
+
+def test_a_tape_with_no_valid_brier_reply_for_a_question_stops_the_replay(tmp_path):
+    tape = _brier_tape(tmp_path, (503, {}))
+
+    with pytest.raises(TapeMiss, match="no passage has a valid brier reply"):
+        TapedBrierScores(tape).admits(QUESTION, _passages(0.8), EXAMPLE)
+
+
+def test_a_passage_brier_never_scored_is_a_miss_never_a_call(tmp_path):
+    tape = _brier_tape(tmp_path, _yes(0.9))
+
+    with pytest.raises(TapeMiss, match="re-record locally"):
+        TapedBrierScores(tape).admits("another question", _passages(0.8), EXAMPLE)
+
+
+def test_brier_replays_nothing_retrieved_as_a_rejection_scored_zero(tmp_path):
+    decision = TapedBrierScores(Tape.open(tmp_path)).admits(QUESTION, (), EXAMPLE)
+
+    assert decision.admitted is False
+    assert decision.scores == {"brier": 0.0}

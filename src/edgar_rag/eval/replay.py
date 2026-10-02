@@ -14,10 +14,12 @@ the prompt with its deterministic nonce and the generation options, the brier
 request body. Two calls share a key only when the model would see the same
 bytes, so a changed prompt, option or passage is a miss, never a stale hit.
 
-Every wrapper here works the same way: with a ``live`` model it answers from
-the tape when it can and otherwise calls the model and appends the reply;
-without one it is a replay, and a miss raises ``TapeMiss`` telling the reader
-to re-record locally. Vectors are stored as the raw float32 bytes, so a
+The embedder and the generator work the same way: with a ``live`` model each
+answers from the tape when it can and otherwise calls the model and appends
+the reply; without one it is a replay, and a miss raises ``TapeMiss`` telling
+the reader to re-record locally. Brier is replay only: its gate was removed
+(ADR-0014), and the tape of the frozen run that scored it is where its scores
+come from. Vectors are stored as the raw float32 bytes, so a
 replayed search ranks exactly as the recorded one did.
 
 Rows are appended as they are recorded, so a run that stops halfway keeps
@@ -30,13 +32,23 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 import numpy as np
 from numpy.typing import NDArray
+from pydantic import BaseModel, Field, ValidationError
 
-from edgar_rag.domain import Embedder, EmbedderSpec, Generation, Generator, NotRecorded
+from edgar_rag.domain import (
+    Embedder,
+    EmbedderSpec,
+    GateDecision,
+    Generation,
+    Generator,
+    IndexedFiling,
+    NotRecorded,
+    ScoredChunk,
+)
 from edgar_rag.lfs import is_pointer, pointer_message
 from edgar_rag.models import GENERATION_OPTIONS
 
@@ -44,12 +56,13 @@ META_FILE = "meta.json"
 EMBED = "embed"
 GENERATE = "generate"
 BRIER = "brier"
+BRIER_PATH = "/decide"
 KINDS = (EMBED, GENERATE, BRIER)
 GENERATION_KEY_OPTIONS: dict[str, object] = {**GENERATION_OPTIONS, "think": False}
 """The generation options a tape is keyed by: those sent to Ollama, thinking off."""
 RE_RECORD = (
-    "re-record locally: `edgar-rag eval run --mode record` with Ollama running "
-    "(and EDGAR_RAG_BRIER_URL for brier), then commit the tape"
+    "re-record locally: `edgar-rag eval run --mode record` with Ollama running, "
+    "then commit the tape"
 )
 
 
@@ -236,30 +249,80 @@ class TapedGenerator:
         return generation
 
 
-class TapedTransport(httpx.BaseTransport):
-    """An HTTP transport for the brier client, answered from a tape.
+class TapedBrierScores:
+    """The brier scores of a frozen run, read back from its tape.
 
-    The key is the path and the JSON body, not the host, so a tape recorded
-    against one brier URL replays against any. With a ``live`` transport a
-    miss is sent on and the reply recorded; without one it raises ``TapeMiss``,
-    which the brier gate does not mistake for an outage and swallow.
+    ``BrierGate`` was removed after the headline run (ADR-0014), but that run
+    scored it, and its tape keeps every request and reply. This replays them,
+    so the frozen run reproduces with all three gates' scores; it never calls
+    a model, and a request the tape does not hold raises ``TapeMiss``.
+
+    It decides as the removed gate did with a threshold of 0: each passage is
+    looked up on its own, the score is the most confident "yes", a reply that
+    is not a valid answer leaves its passage unjudged and the decision
+    degraded, and no passage at all is a rejection scored 0.
     """
 
-    def __init__(self, tape: Tape, live: httpx.BaseTransport | None = None) -> None:
+    def __init__(self, tape: Tape) -> None:
         self._tape = tape
-        self._live = live
 
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.read() or b"null")
-        call = {"path": request.url.path, "body": body}
-        key, response = self._tape.lookup(BRIER, call)
-        if response is not None:
-            return httpx.Response(int(response["status"]), json=response["body"])
-        if self._live is None:
-            raise _miss(BRIER, key, f"POST {request.url.path}")
-        reply = self._live.handle_request(request)
-        content = reply.read()
-        self._tape.record(
-            BRIER, key, call, {"status": reply.status_code, "body": json.loads(content)}
+    def admits(
+        self, question: str, passages: tuple[ScoredChunk, ...], filing: IndexedFiling
+    ) -> GateDecision:
+        if not passages:
+            return GateDecision(
+                False, 0.0, "retrieval returned nothing to judge", scores={BRIER: 0.0}
+            )
+        confidences = (self._confidence(question, scored.chunk.text) for scored in passages)
+        judged = [confidence for confidence in confidences if confidence is not None]
+        if not judged:
+            raise TapeMiss(f"no passage has a valid brier reply on the tape: {question!r}")
+        best = round(max(judged), 4)
+        return GateDecision(
+            admitted=True,
+            confidence=best,
+            reason=f"recorded brier confidence {best:.3f}",
+            degraded=len(judged) < len(passages),
+            scores={BRIER: best},
         )
-        return httpx.Response(reply.status_code, content=content, headers=reply.headers)
+
+    def _confidence(self, question: str, passage: str) -> float | None:
+        """The recorded probability of "yes"; ``None`` when the reply was not an answer."""
+        call = {"path": BRIER_PATH, "body": brier_request(question, passage)}
+        key, response = self._tape.lookup(BRIER, call)
+        if response is None:
+            raise _miss(BRIER, key, f"POST {BRIER_PATH}")
+        if response.get("status") != httpx.codes.OK:
+            return None
+        try:
+            reply = _BrierReply.model_validate(response.get("body"))
+        except ValidationError:
+            return None
+        return reply.answers[0].probabilities[1]
+
+
+def brier_request(question: str, passage: str) -> dict[str, Any]:
+    """The body the brier gate sent for one passage: what its tape rows are keyed by."""
+    return {
+        "state": passage,
+        "questions": [
+            {
+                "name": "relevance",
+                "kind": "bool",
+                "prompt": f"Does the passage answer this question: {question}",
+                "options": ["no", "yes"],
+            }
+        ],
+    }
+
+
+_Probability = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False, strict=True)]
+
+
+class _BrierAnswer(BaseModel):
+    # One probability per option, in the order sent: ["no", "yes"]
+    probabilities: Annotated[list[_Probability], Field(min_length=2, max_length=2)]
+
+
+class _BrierReply(BaseModel):
+    answers: Annotated[list[_BrierAnswer], Field(min_length=1)]

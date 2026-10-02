@@ -98,13 +98,3 @@ def ollama_model(client: httpx.Client, base_url: str, name: str) -> ModelInfo:
             digest = model.get("digest")
             return ModelInfo(name=name, digest=str(digest) if digest else None)
     return ModelInfo(name=name, digest=None)
-
-
-def brier_ready(client: httpx.Client, base_url: str) -> dict[str, object] | None:
-    """What the brier plugin says about its weights, from its ``/ready``."""
-    try:
-        reply = client.get(f"{base_url.rstrip('/')}/ready", timeout=PROBE_TIMEOUT_SECONDS)
-        payload = reply.raise_for_status().json()
-    except (httpx.HTTPError, ValueError):
-        return None
-    return payload if isinstance(payload, dict) else None

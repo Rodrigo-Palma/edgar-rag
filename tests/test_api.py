@@ -9,8 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from edgar_rag.config import ServiceSettings
-from edgar_rag.domain import Generation
-from edgar_rag.gate import AllOf, BrierGate, CosineGate, GateError, NoGate
+from edgar_rag.domain import GateDecision, Generation
+from edgar_rag.gate import AllOf, CosineGate, GateError, NoGate
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import ModelError
 from edgar_rag.period import PeriodGuard
@@ -173,36 +173,6 @@ def test_a_gate_that_cannot_reach_its_model_is_a_bad_gateway_not_a_crash(index, 
     assert response.status_code == 502
     _assert_no_topology(response.text)
     assert "http://localhost:8100" in caplog.text
-
-
-def _brier_client(*confidences: float) -> httpx.Client:
-    """A brier service that judges passage n with confidences[n-1], or fails past them.
-
-    With no confidences it refuses every connection.
-    """
-    asked: list[int] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if not confidences:
-            raise httpx.ConnectError("[Errno 61] Connection refused", request=request)
-        asked.append(1)
-        if len(asked) > len(confidences):
-            return httpx.Response(503, text="down")
-        yes = confidences[len(asked) - 1]
-        return httpx.Response(200, json={"answers": [{"probabilities": [1 - yes, yes]}]})
-
-    return httpx.Client(transport=httpx.MockTransport(handler))
-
-
-def test_a_degraded_brier_answer_tells_the_client_nothing_about_the_brier_host(index):
-    """Adversarial case 14, end to end: the gate reason is part of the response."""
-    with _brier_client() as brier:
-        gate = BrierGate("http://localhost:8100", fallback=CosineGate(0.5), client=brier)
-        response = _ask_with(index, gate=gate)
-
-    assert response.status_code == 200
-    assert "relevance model unavailable" in response.json()["detail"]
-    _assert_no_topology(response.text)
 
 
 def _ollama_answering(status: int, asked: list[str] | None = None) -> httpx.MockTransport:
@@ -378,10 +348,7 @@ def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
 def test_the_default_gate_puts_the_period_guard_in_front_of_cosine():
     settings = ServiceSettings(min_retrieval_score=0.4)
 
-    with httpx.Client() as client:
-        gate = build_gate(settings, client)
-
-    assert gate == AllOf(PeriodGuard(), CosineGate(0.4))
+    assert build_gate(settings) == AllOf(PeriodGuard(), CosineGate(0.4))
 
 
 @pytest.mark.parametrize(
@@ -392,39 +359,8 @@ def test_the_default_gate_puts_the_period_guard_in_front_of_cosine():
         ("period+cosine", AllOf(PeriodGuard(), CosineGate(0.4))),
     ],
 )
-def test_each_gate_without_brier_is_built_as_named(choice, expected):
-    with httpx.Client() as client:
-        gate = build_gate(ServiceSettings(gate=choice, min_retrieval_score=0.4), client)
-
-    assert gate == expected
-
-
-@pytest.mark.parametrize("choice", ["brier", "period+brier"])
-def test_a_brier_gate_puts_the_model_in_front_of_cosine_through_the_service_client(choice):
-    settings = ServiceSettings(
-        gate=choice,
-        brier_url="http://brier.test",
-        brier_min_confidence=0.8,
-        min_retrieval_score=0.4,
-    )
-
-    with httpx.Client() as client:
-        gate = build_gate(settings, client)
-
-    brier = gate.gates[-1] if isinstance(gate, AllOf) else gate
-    assert isinstance(brier, BrierGate)
-    assert brier.min_confidence == 0.8
-    assert brier.fallback == CosineGate(0.4)
-    assert brier.client is client
-    if choice == "period+brier":
-        assert gate == AllOf(PeriodGuard(), brier)
-
-
-def test_building_a_brier_gate_without_a_url_fails_even_past_the_settings_check():
-    unchecked = ServiceSettings.model_construct(gate="brier", brier_url=None)
-
-    with httpx.Client() as client, pytest.raises(ValueError, match="needs EDGAR_RAG_BRIER_URL"):
-        build_gate(unchecked, client)
+def test_each_gate_is_built_as_named(choice, expected):
+    assert build_gate(ServiceSettings(gate=choice, min_retrieval_score=0.4)) == expected
 
 
 def test_a_question_about_another_year_is_declined_out_of_period_by_default(index):
@@ -459,19 +395,23 @@ IN_2023 = "what did the company design in fiscal 2023?"
 
 def _default_gate_answerer(index, generator):
     """The gate the default settings build, over a fake embedder and generator."""
-    with httpx.Client() as unused:
-        gate = build_gate(ServiceSettings(), unused)
+    gate = build_gate(ServiceSettings())
     embedder = FakeEmbedder({IN_2019: [1.0, 0.0], IN_2023: [1.0, 0.0]})
     return fake_answerer(index, embedder=embedder, generator=generator, gate=gate)
 
 
-def test_a_partly_judged_brier_refusal_reaches_the_client_as_degraded(index):
-    """Red flag 8: passage 2 was never judged, and the response used to hide it."""
-    with _brier_client(0.4) as brier:
-        gate = BrierGate(
-            "http://brier.test", min_confidence=0.7, fallback=CosineGate(0.5), client=brier
+class _PartlyJudgedGate:
+    """A gate that declined on part of its evidence, as one asking a service can."""
+
+    def admits(self, question, passages, filing):
+        return GateDecision(
+            admitted=False, confidence=0.4, reason="1 of 2 passages unjudged", degraded=True
         )
-        response = _ask_with(index, gate=gate)
+
+
+def test_a_partly_judged_refusal_reaches_the_client_as_degraded(index):
+    """Red flag 8: a decision on part of the evidence used to look like a whole one."""
+    response = _ask_with(index, gate=_PartlyJudgedGate())
 
     assert response.status_code == 200
     body = response.json()
@@ -480,19 +420,6 @@ def test_a_partly_judged_brier_refusal_reaches_the_client_as_degraded(index):
     assert body["reason"] == "gate_rejected"
     assert body["degraded"] is True
     assert body["gate_score"] == 0.4
-    _assert_no_topology(response.text)
-
-
-def test_a_brier_outage_answered_by_cosine_reaches_the_client_as_degraded(index):
-    """The fallback is never reported as a model decision."""
-    with _brier_client() as brier:
-        gate = BrierGate("http://brier.test", fallback=CosineGate(0.5), client=brier)
-        body = _ask_with(index, gate=gate).json()
-
-    assert body["abstained"] is False
-    assert body["reason"] is None
-    assert body["degraded"] is True
-    assert body["gate_score"] == 1.0
 
 
 def test_a_healthy_answer_carries_every_field_of_the_contract(client):
