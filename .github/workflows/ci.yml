@@ -53,11 +53,51 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Tests load the committed CI index and tape.
+      - uses: ./.github/actions/lfs
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
       - run: uv sync --locked
       - run: make test
+
+  eval:
+    name: eval gate (dev split replayed, no model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/lfs
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: replay the dev split and judge it against eval/ci/baseline.json
+        shell: bash
+        run: make eval-ci | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: make demo answers one question and declines the other without a model
+        run: make demo
+
+  report:
+    name: report reproduces
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      # Reports are built from the frozen runs' records, which are plain git.
+      - run: make eval
+      - name: docs/eval matches what the frozen runs produce
+        run: |
+          git status --porcelain docs/eval
+          test -z "$(git status --porcelain docs/eval)"
 
   audit:
     name: dependency audit

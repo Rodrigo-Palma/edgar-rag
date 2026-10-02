@@ -1,0 +1,33 @@
+name: Git LFS objects
+description: >
+  Check out the Git LFS objects (the CI index vectors and tape embeddings),
+  from the cache when their ids have not changed, so a run costs no LFS
+  bandwidth unless an object did.
+inputs:
+  token:
+    description: Token for the LFS download; used by this step only.
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - name: key the cache by every LFS object id
+      id: objects
+      shell: bash
+      run: |
+        ids=$(git lfs ls-files --long | cut -d ' ' -f1 | sort | sha256sum | cut -c1-16)
+        echo "key=lfs-$ids" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .git/lfs/objects
+        key: ${{ steps.objects.outputs.key }}
+    # actions/checkout runs with persist-credentials: false, so the token is
+    # handed to this one command and never written to the git config.
+    - name: check out the LFS objects
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      run: |
+        git lfs install --local
+        auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+        git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" lfs pull
+        git lfs ls-files
