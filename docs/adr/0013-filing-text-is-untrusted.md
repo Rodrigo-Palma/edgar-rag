@@ -34,8 +34,8 @@ With one local user that is self-injection, but it crosses the same boundary.
 ## Decision
 
 Every string that is not ours (passage text and the caller's question) goes
-through one function, `_as_data`, before it reaches the generation prompt. In
-order:
+through one function, `as_data` in `src/edgar_rag/prompt.py`, before it reaches
+the generation prompt. In order:
 
 1. Unicode NFKC normalisation, then removal of format characters (category
    `Cf`: zero-width, bidi overrides), so lookalikes cannot dodge the rules below.

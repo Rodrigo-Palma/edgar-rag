@@ -29,11 +29,12 @@ import unicodedata
 import numpy as np
 import pytest
 
-from edgar_rag.answer import answer_question, case_nonce, random_nonce
+from edgar_rag.answer import answer_question
 from edgar_rag.domain import AbstentionReason, Chunk
 from edgar_rag.edgar.parse import html_to_text
 from edgar_rag.gate import CosineGate
 from edgar_rag.index import FilingIndex, build_index
+from edgar_rag.prompt import case_nonce, random_nonce
 from tests.fakes import FakeEmbedder, FakeGate, FakeGenerator, FixedNonce
 
 NONCE = "0badc0de"
