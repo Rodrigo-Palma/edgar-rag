@@ -36,19 +36,18 @@ index, search, gate and citation check run for real
 ## Result
 
 ```mermaid
-flowchart LR
-  Q["eval split<br/>300 unanswerable, 180 answerable<br/>20 companies"] --> R["retrieve once per question<br/>score every gate:<br/>period, cosine, brier"]
-  T["cosine and brier thresholds<br/>cross-fitted by company<br/>two folds, R90"] -.-> M
-  R --> G["one generation per question<br/>qwen3:32b, temperature 0"]
-  G --> M{"six arms<br/>masks over the<br/>same generation"}
-  M --> A["A none"]
-  M --> B["B cosine"]
-  M --> C["C brier (removed)"]
-  M --> D["D period"]
-  M --> E["E period + brier (removed)"]
-  M --> F["F period + cosine"]
-  A -. "H1: FAR(A) - FAR(F)" .- F
-  E -. "H2: FAR(E) - FAR(F), paired" .- F
+flowchart TD
+  Q["eval split<br/>300 unanswerable<br/>180 answerable<br/>20 companies"] --> R["retrieve once<br/>score every gate:<br/>period, cosine, brier"]
+  R --> G["one generation<br/>per question<br/>qwen3:32b, temperature 0"]
+  T["cosine and brier<br/>thresholds, cross-fitted<br/>by company, R90"] -.-> M
+  G --> M{"six arms:<br/>masks over the<br/>same generation"}
+  M --> A["A none"] & B["B cosine"] & C["C brier<br/>(removed)"]
+  A ~~~ D["D period"]
+  B ~~~ E["E period + brier<br/>(removed)"]
+  C ~~~ F["F period + cosine"]
+  M --> D & E & F
+  A & F -.- H1["H1<br/>FAR(A) - FAR(F)"]
+  E & F -.- H2["H2, paired<br/>FAR(E) - FAR(F)"]
 ```
 
 An arm decides only whether the shared generation is kept, so every difference
@@ -194,18 +193,17 @@ schema is served at `/openapi.json`.
 ## How it works
 
 ```mermaid
-flowchart LR
-  Q["question + scope<br/>(cik, fiscal_year)"] --> SC{"a filing indexed<br/>for this scope?"}
+flowchart TD
+  Q["question<br/>cik, fiscal_year"] --> SC{"filing indexed<br/>for this scope?"}
+  SC -- yes --> S["embed<br/>(lower-cased)<br/>exact cosine search<br/>inside that filing"]
   SC -- no --> X1["abstain<br/>out_of_scope"]
-  SC -- yes --> E["embed<br/>lower-cased"]
-  E --> S["exact cosine search<br/>inside that filing, top_k"]
-  S --> G{"gate<br/>none (default) · cosine · period+cosine"}
-  G -- declined --> X2["abstain<br/>out_of_period, gate_rejected<br/>the model is never called"]
-  G -- admitted --> L["generate<br/>passages as untrusted data<br/>refusal token drawn per request"]
+  S --> G{"gate<br/>none (default)<br/>cosine<br/>period+cosine"}
+  G -- admitted --> L["generate<br/>passages as untrusted data<br/>refusal token per request"]
+  G -- declined --> X2["abstain, model not called<br/>out_of_period<br/>gate_rejected"]
+  L -- text --> V{"verify citations<br/>a marker per claim<br/>amounts in the<br/>cited passage"}
   L -- refusal token --> X3["abstain<br/>model_declined"]
-  L -- text --> V{"verify citations<br/>a marker per claim<br/>every amount in the cited passage"}
-  V -- fails --> X4["abstain<br/>no_valid_citation, unsupported_claim"]
   V -- holds --> A["answer + citations<br/>quoted from the passage"]
+  V -- fails --> X4["abstain<br/>no_valid_citation<br/>unsupported_claim"]
 ```
 
 Every request names the filing it is about: `cik` is required and
