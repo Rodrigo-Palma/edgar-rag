@@ -4,7 +4,7 @@ UV_RUN := uv run --frozen
 SRC := src tests scripts
 
 .DEFAULT_GOAL := help
-.PHONY: help sync check lint format typecheck imports test audit
+.PHONY: help sync check lint format typecheck imports test audit serve image up down
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -35,3 +35,18 @@ audit: ## Known vulnerabilities in the locked dependencies (needs network)
 	@tmp=$$(mktemp) && trap 'rm -f "$$tmp"' EXIT && \
 	uv export --frozen --format requirements-txt --no-emit-project --all-groups -o "$$tmp" >/dev/null && \
 	uvx --from 'pip-audit>=2.7,<3' pip-audit --strict --disable-pip --require-hashes -r "$$tmp"
+
+serve: ## Serve answers from the index on 127.0.0.1:8000 (needs Ollama)
+	$(UV_RUN) edgar-rag serve
+
+IMAGE := edgar-rag:local
+
+image: ## Build the service image and print its size
+	docker build -t $(IMAGE) .
+	@docker run --rm --entrypoint sh $(IMAGE) -c 'du -sxh / 2>/dev/null' | awk '{print "image filesystem: " $$1}'
+
+up: ## Serve from the container, index from EDGAR_RAG_INDEX (default data/index), Ollama on the host
+	docker compose up --build --detach --wait
+
+down: ## Stop the container
+	docker compose down
