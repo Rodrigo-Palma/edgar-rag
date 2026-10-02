@@ -3,3 +3,6 @@
 # stays in git, where a change to it can be reviewed.
 eval/ci/index/**/vectors.npy filter=lfs diff=lfs merge=lfs -text
 eval/**/tape/embed.jsonl filter=lfs diff=lfs merge=lfs -text
+# A frozen run's brier tape is text, but each line repeats a retrieved passage, so
+# it runs to tens of MB that nobody reviews line by line: LFS, like the vectors.
+eval/**/tape/brier.jsonl filter=lfs diff=lfs merge=lfs -text

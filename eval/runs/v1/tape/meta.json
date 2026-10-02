@@ -1,0 +1,26 @@
+{
+ "brier": {
+  "ready": {
+   "min_confidence": 0.6,
+   "status": "ready",
+   "temperature": 2.5999999046325684,
+   "weights": "nomic-embed-text|lowercase=True, 768d, 7 blocks, seed 0"
+  },
+  "sha": "d70e7df9b0b4f765e2d533c7bc9dd532155916e5"
+ },
+ "embedding": {
+  "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+  "name": "nomic-embed-text"
+ },
+ "generation": {
+  "digest": "030ee887880fc378860c2dd35101da424377520441ae4bfe7be6deff8ade7840",
+  "name": "qwen3:32b"
+ },
+ "generation_options": {
+  "num_ctx": 8192,
+  "seed": 0,
+  "temperature": 0,
+  "think": false
+ },
+ "ollama_version": "0.18.0"
+}

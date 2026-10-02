@@ -1,8 +1,9 @@
 name: Git LFS objects
 description: >
-  Check out the Git LFS objects (the CI index vectors and tape embeddings),
-  from the cache when their ids have not changed, so a run costs no LFS
-  bandwidth unless an object did.
+  Check out the Git LFS objects under eval/ci/ (the CI index vectors and tape
+  embeddings), from the cache when their ids have not changed, so a run costs
+  no LFS bandwidth unless an object did. The frozen runs' tapes under
+  eval/runs/ are never fetched: no job reads them.
 inputs:
   token:
     description: Token for the LFS download; used by this step only.
@@ -14,7 +15,7 @@ runs:
       id: objects
       shell: bash
       run: |
-        ids=$(git lfs ls-files --long | cut -d ' ' -f1 | sort | sha256sum | cut -c1-16)
+        ids=$(git lfs ls-files --long --include="eval/ci/**" | cut -d ' ' -f1 | sort | sha256sum | cut -c1-16)
         echo "key=lfs-$ids" >> "$GITHUB_OUTPUT"
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -29,5 +30,5 @@ runs:
       run: |
         git lfs install --local
         auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-        git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" lfs pull
+        git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" lfs pull --include="eval/ci/**"
         git lfs ls-files

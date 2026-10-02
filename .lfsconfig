@@ -1,0 +1,5 @@
+# Frozen runs keep their tapes in LFS for an offline replay, but no clone or job
+# needs them. The headline one, overriding this exclude:
+#   git lfs pull --include="eval/runs/v1/tape/**" --exclude=""
+[lfs]
+	fetchexclude = eval/runs/**

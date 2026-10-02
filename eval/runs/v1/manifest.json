@@ -1,0 +1,49 @@
+{
+ "brier": {
+  "ready": {
+   "min_confidence": 0.6,
+   "status": "ready",
+   "temperature": 2.5999999046325684,
+   "weights": "nomic-embed-text|lowercase=True, 768d, 7 blocks, seed 0"
+  },
+  "sha": "d70e7df9b0b4f765e2d533c7bc9dd532155916e5"
+ },
+ "cases": 6192,
+ "date": "2026-10-02",
+ "embedding": {
+  "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+  "name": "nomic-embed-text"
+ },
+ "format_version": 1,
+ "gates": [
+  "period",
+  "cosine",
+  "brier"
+ ],
+ "generation": {
+  "digest": "030ee887880fc378860c2dd35101da424377520441ae4bfe7be6deff8ade7840",
+  "name": "qwen3:32b"
+ },
+ "generation_options": {
+  "num_ctx": 8192,
+  "seed": 0,
+  "temperature": 0,
+  "think": false
+ },
+ "golden_sha256": "00419f11876cacad11f41ca51c9284b071d1bc562c139a1b3c7e42c23a3882bf",
+ "hardware": "Apple M3 Max, Darwin 27.0.0",
+ "index_digest": "bbe4812361d6c95e",
+ "index_filings": 48,
+ "limit": null,
+ "mode": "record",
+ "narrative_sha256": "8140c88aec9622818dfd5e4d0e4889ba56ccc4a8d8573d5f45d38b8a242a7455",
+ "ollama_version": "0.18.0",
+ "protocol_sha256": "f004e4c2cfdc9f45354bf6e52004a6d809e4925e1cf4762ddffda945feb11b7c",
+ "repeats": 30,
+ "repo_dirty": false,
+ "repo_sha": "d8d23b9f9610f070805a9b82f8e094d5d2211e31",
+ "split": "eval",
+ "tier": "e2e",
+ "top_k": 4,
+ "wall_seconds": 8669.3
+}
