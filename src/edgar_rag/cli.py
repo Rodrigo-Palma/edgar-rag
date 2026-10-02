@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from edgar_rag.config import IngestSettings, ServiceSettings, SnapshotIngestSettings
 from edgar_rag.edgar.client import EdgarClient, EdgarError, Filing
 from edgar_rag.edgar.fetch import REQUEST_TIMEOUT_SECONDS as EDGAR_TIMEOUT_SECONDS
-from edgar_rag.eval import build, power
+from edgar_rag.eval import build, commands, power
 from edgar_rag.eval.build import EvalPaths
 from edgar_rag.eval.corpus import index_pinned, pinned_filings
 from edgar_rag.eval.snapshot import read_lock
@@ -49,6 +49,10 @@ EVAL_COMMANDS = (
     EvalCommand("golden-stats", build.STATS_HELP, build.add_root_argument, build.run_stats_command),
     EvalCommand(
         "golden-fetch", build.FETCH_HELP, build.add_fetch_arguments, build.run_fetch_command
+    ),
+    EvalCommand("run", commands.RUN_HELP, commands.add_run_arguments, commands.run_run_command),
+    EvalCommand(
+        "report", commands.REPORT_HELP, commands.add_report_arguments, commands.run_report_command
     ),
 )
 

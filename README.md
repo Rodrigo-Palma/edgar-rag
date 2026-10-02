@@ -161,7 +161,8 @@ reports about itself on held-out data, where wrong-year accuracy is 0.000
 predicted, which is the most useful thing a metric can do.
 
 ```bash
-python scripts/evaluate_gates.py     # needs a brier service on :8100
+uv run edgar-rag eval run --split dev --gate-only     # scores every gate; brier only with EDGAR_RAG_BRIER_URL
+uv run edgar-rag eval report --run data/eval/dev-gate-only
 ```
 
 ## Declining the wrong year without a model

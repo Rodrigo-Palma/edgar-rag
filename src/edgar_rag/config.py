@@ -105,6 +105,16 @@ class SnapshotIngestSettings(_SharedSettings):
 
 
 class EvalSettings(_SharedSettings):
-    """Settings for comparing gates over an existing index."""
+    """Settings for running the evaluation over an existing index.
 
-    min_retrieval_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    No threshold is configured here: the evaluation scores every gate and
+    fits each threshold from the scores (see ``eval.arms``). ``brier_url`` is
+    optional, because brier is a private plugin; without it the arms that need
+    it are reported as not run. ``brier_sha`` is the commit the plugin was
+    built from, stated by whoever runs it, since the service does not report
+    one.
+    """
+
+    generation_model: str = "qwen3:32b"
+    brier_url: HttpUrl | None = None
+    brier_sha: str | None = None

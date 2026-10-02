@@ -96,5 +96,13 @@ def test_ingestion_reads_the_contact_from_its_prefixed_variable(monkeypatch):
     assert IngestSettings().edgar_user_agent == "Jane Doe jane@firm.io"
 
 
-def test_evaluation_reads_the_cosine_threshold():
-    assert EvalSettings(min_retrieval_score=0.4).min_retrieval_score == 0.4
+def test_evaluation_runs_without_brier_unless_its_url_is_set(monkeypatch):
+    monkeypatch.delenv("EDGAR_RAG_BRIER_URL", raising=False)
+    assert EvalSettings().brier_url is None
+
+    monkeypatch.setenv("EDGAR_RAG_BRIER_URL", "http://127.0.0.1:8100")
+    monkeypatch.setenv("EDGAR_RAG_BRIER_SHA", "d70e7df")
+    settings = EvalSettings()
+
+    assert str(settings.brier_url) == "http://127.0.0.1:8100/"
+    assert settings.brier_sha == "d70e7df"
