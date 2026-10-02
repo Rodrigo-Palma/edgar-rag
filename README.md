@@ -22,11 +22,14 @@ So the service ships with no gate, H2 was not met, and the relevance model it
 started from was removed
 ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
 
-<img src="docs/media/demo.gif" alt="make demo: one cited answer and one out_of_period decline, replayed with no model" width="820">
+<img src="docs/media/demo.gif" alt="A tour in six scenes, replayed with no model: a cited answer, an out_of_period decline before the model, a model_declined refusal, make eval rebuilding the report unchanged, make result printing the six arms and the H1 and H2 readings, and make eval-ci passing" width="820">
 
-`make demo`, replayed from a recorded tape: no model and no network; the
-index, search, gate and citation check run for real
-([source](docs/media/demo.tape)).
+Six scenes, every line the real output of the command above it: a cited
+answer, a decline before the model, a decline by the model, the report
+rebuilt byte for byte, the result printed from it, and the CI gate. Replayed
+from recorded tapes with no model and no network; the index, search, gate and
+citation check run for real ([source](docs/media/demo.tape); `ask` is a POST
+to `/ask` defined in [scripts/demo_tour.sh](scripts/demo_tour.sh)).
 
 [Result](#result) · [Try it](#try-it) · [How it works](#how-it-works) ·
 [Guarantees](#guarantees-and-the-test-that-enforces-each) ·
@@ -318,6 +321,7 @@ make eval                        # rebuilds docs/eval/ from the frozen run
 git status --porcelain docs/eval # empty: the report reproduces
 make eval-ci                     # replays the dev split against the CI baseline
 make demo                        # one cited answer, one decline
+make result                      # the six arms and the H1/H2 reading, printed from the report
 ```
 
 With a model (Ollama on the host):
