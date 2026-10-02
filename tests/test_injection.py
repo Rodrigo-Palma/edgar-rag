@@ -14,6 +14,8 @@ handling, 20 to 22 EDGAR):
 - 3  fake Question:/Answer: turns        test_a_passage_cannot_open_a_new_turn
 - 4  guessing the nonce                  test_a_guessed_nonce_does_not_close_the_block
                                          test_each_request_draws_a_fresh_nonce
+                                         test_one_answered_request_draws_exactly_one_nonce
+                                         test_two_requests_to_one_answerer_carry_different_refusal_tokens
 - 5  zero-width and bidi characters      test_format_characters_are_removed_before_escaping
 - 6  refusal phrase in a passage         test_the_refusal_phrase_is_removed_in_any_spelling
 - 7  model refuses without the nonce     test_a_refusal_without_the_nonce_is_not_a_refusal
@@ -173,6 +175,19 @@ def test_one_answered_request_draws_exactly_one_nonce(index):
 
     assert nonce.calls == 1
     assert f"REFUSE-{NONCE}" in generator.prompts[0]
+
+
+def test_two_requests_to_one_answerer_carry_different_refusal_tokens(index):
+    """The default source is drawn per request, not once per Answerer."""
+    generator = FakeGenerator("The Company designs phones [1].")
+    answerer = Answerer(index, FakeEmbedder({QUESTION: [1.0, 0.0]}), generator, CosineGate(0.5))
+
+    answerer.ask(QUESTION, SCOPE, top_k=2)
+    answerer.ask(QUESTION, SCOPE, top_k=2)
+
+    tokens = [re.findall(r"REFUSE-[0-9a-f]{8}", prompt) for prompt in generator.prompts]
+    assert all(tokens)
+    assert tokens[0][0] != tokens[1][0]
 
 
 @pytest.mark.parametrize("bad", ["", "short", "0badc0de>", "0bad c0de", "x" * 65])
