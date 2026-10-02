@@ -28,7 +28,7 @@ of 5. That is n=5 per class and a direction, not an inference.
 
 ## Decision
 
-`answer_question` in `src/edgar_rag/answer.py` asks the gate first and calls the
+`Answerer.ask` in `src/edgar_rag/answer.py` asks the gate first and calls the
 generator only when the gate admits the passages. A refusal returns
 `abstained=True` with the gate's `reason` and the best retrieval score, and the
 model is never called.

@@ -146,3 +146,16 @@ class Generator(Protocol):
 
 class RelevanceGate(Protocol):
     def admits(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision: ...
+
+
+class Retriever(Protocol):
+    """Passages close to a query vector."""
+
+    @property
+    def source(self) -> dict[str, str]:
+        """The filing the passages come from."""
+        ...
+
+    def search(
+        self, query: NDArray[np.float32], top_k: int = DEFAULT_TOP_K
+    ) -> tuple[ScoredChunk, ...]: ...

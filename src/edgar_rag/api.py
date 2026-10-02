@@ -27,13 +27,17 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from edgar_rag import __version__
 from edgar_rag.answer import Answerer
 from edgar_rag.config import ServiceSettings
-from edgar_rag.domain import AbstentionReason, Answer, Generator, RelevanceGate
+from edgar_rag.domain import DEFAULT_TOP_K, AbstentionReason, Answer, Generator, RelevanceGate
 from edgar_rag.embeddings import ModelError, OllamaEmbedder, OllamaGenerator, OllamaProbe
 from edgar_rag.gate import BrierGate, CosineGate, GateError
 from edgar_rag.index import FilingIndex
 from edgar_rag.telemetry import StageTimer, log_request, write_to_stderr
 
 logger = logging.getLogger(__name__)
+
+# The service answers from an index it loaded itself, and reports its size and
+# fingerprint, so it needs the concrete index behind the answerer.
+ServedAnswerer = Answerer[FilingIndex]
 
 # What a client turned away is told to wait before asking again: a fraction of
 # the twenty seconds a generation takes, so it does not come back to a full
@@ -45,7 +49,7 @@ class AskRequest(BaseModel):
     # Trimmed before the length check, so a question of only whitespace is
     # rejected here instead of reaching the core.
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
-    top_k: int = Field(default=4, ge=1, le=10)
+    top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=10)
 
 
 class CitationResponse(BaseModel):
@@ -122,7 +126,7 @@ class GenerationSlots:
             self.slots.release()
 
 
-def with_generation_limit(answerer: Answerer, limit: int) -> Answerer:
+def with_generation_limit(answerer: ServedAnswerer, limit: int) -> ServedAnswerer:
     slots = GenerationSlots(answerer.generator, threading.BoundedSemaphore(limit))
     return dataclasses.replace(answerer, generator=slots)
 
@@ -140,7 +144,7 @@ def build_gate(settings: ServiceSettings, client: httpx.Client) -> RelevanceGate
     )
 
 
-def build_answerer(settings: ServiceSettings, client: httpx.Client) -> Answerer | None:
+def build_answerer(settings: ServiceSettings, client: httpx.Client) -> ServedAnswerer | None:
     """Read the index and wire the models to ``client``; ``None`` without an index.
 
     A missing index does not stop the service from starting: ``/health`` says
@@ -179,7 +183,7 @@ def index_fingerprint(index: FilingIndex, embedding_model: str) -> dict[str, obj
 
 def create_app(
     settings: ServiceSettings | None = None,
-    answerer: Answerer | None = None,
+    answerer: ServedAnswerer | None = None,
     *,
     transport: httpx.BaseTransport | None = None,
 ) -> FastAPI:
@@ -305,9 +309,9 @@ def _request_fields(request: Request, status: int, seconds: float) -> dict[str, 
     }
 
 
-def loaded_answerer(request: Request) -> Answerer:
+def loaded_answerer(request: Request) -> ServedAnswerer:
     """The answerer the lifespan built, or 503 when there was no index."""
-    answerer: Answerer | None = request.app.state.answerer
+    answerer: ServedAnswerer | None = request.app.state.answerer
     if answerer is None:
         raise IndexUnavailable(f"no index in {request.app.state.settings.index_dir}")
     return answerer
@@ -320,7 +324,7 @@ router = APIRouter()
 def health(request: Request) -> dict[str, object]:
     """The index loaded at startup, its fingerprint, and whether Ollama answers."""
     state = request.app.state
-    answerer: Answerer | None = state.answerer
+    answerer: ServedAnswerer | None = state.answerer
     ollama: OllamaProbe = state.ollama
     return {
         "status": "ready" if answerer is not None else "no index",
@@ -335,7 +339,7 @@ def health(request: Request) -> dict[str, object]:
 async def ask(
     question: AskRequest,
     request: Request,
-    answerer: Annotated[Answerer, Depends(loaded_answerer)],
+    answerer: Annotated[ServedAnswerer, Depends(loaded_answerer)],
 ) -> AskResponse:
     """Answer in a worker thread, giving up on it after the request's time budget.
 

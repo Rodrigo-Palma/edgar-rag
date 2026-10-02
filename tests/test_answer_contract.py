@@ -1,12 +1,12 @@
 """What an ``Answer`` tells its caller: a typed reason, the gate's score, and
 whether the gate ran on a fallback.
 
-These used to die inside ``answer_question``: the gate's confidence and its
+These used to die inside the answering pipeline: the gate's confidence and its
 ``degraded`` flag were dropped, every abstention carried the same message, and
 the reason was free prose a caller could only grep.
 """
 
-from edgar_rag.answer import answer_question
+from edgar_rag.answer import Answerer
 from edgar_rag.domain import AbstentionReason, GateDecision, abstained_message
 from edgar_rag.gate import CosineGate
 from tests.fakes import FakeEmbedder, FakeGate, FakeGenerator, FixedNonce
@@ -17,15 +17,9 @@ NONCE = "0badc0de"
 
 
 def _ask(index, gate, reply: str = "The Company designs phones [1]."):
-    return answer_question(
-        QUESTION,
-        index,
-        FakeEmbedder(TABLE),
-        FakeGenerator(reply),
-        gate,
-        top_k=2,
-        nonce=FixedNonce(NONCE),
-    )
+    return Answerer(
+        index, FakeEmbedder(TABLE), FakeGenerator(reply), gate, nonce=FixedNonce(NONCE)
+    ).ask(QUESTION, top_k=2)
 
 
 def test_a_gate_rejection_says_so_with_the_gate_score(index):

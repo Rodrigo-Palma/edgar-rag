@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from edgar_rag.domain import Chunk, ScoredChunk
+from edgar_rag.domain import DEFAULT_TOP_K, Chunk, ScoredChunk
 
 VECTORS_FILE = "vectors.npy"
 CHUNKS_FILE = "chunks.json"
@@ -22,7 +22,9 @@ class FilingIndex:
     chunks: tuple[Chunk, ...]
     vectors: NDArray[np.float32]
 
-    def search(self, query: NDArray[np.float32], top_k: int = 4) -> tuple[ScoredChunk, ...]:
+    def search(
+        self, query: NDArray[np.float32], top_k: int = DEFAULT_TOP_K
+    ) -> tuple[ScoredChunk, ...]:
         """Return the ``top_k`` closest chunks, best first."""
         if top_k <= 0:
             raise ValueError("top_k must be positive")

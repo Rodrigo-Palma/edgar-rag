@@ -10,11 +10,10 @@ import argparse
 from dataclasses import dataclass
 
 from edgar_rag.config import EvalSettings
+from edgar_rag.domain import DEFAULT_TOP_K
 from edgar_rag.embeddings import OllamaEmbedder
 from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
 from edgar_rag.index import FilingIndex
-
-TOP_K = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +78,7 @@ def run(gate: RelevanceGate, name: str, index: FilingIndex, embedder) -> Score:
     admitted = {True: 0, False: 0}
     print(f"\n{name}")
     for case in CASES:
-        passages = index.search(embedder.embed((case.question,)), top_k=TOP_K)
+        passages = index.search(embedder.embed((case.question,)), top_k=DEFAULT_TOP_K)
         try:
             decision = gate.admits(case.question, passages)
         except GateError as error:
@@ -165,7 +164,7 @@ def _sweeps(index: FilingIndex, embedder, arguments) -> None:
     brier = BrierGate(arguments.brier_url, min_confidence=0.0)
 
     for case in CASES:
-        passages = index.search(embedder.embed((case.question,)), top_k=TOP_K)
+        passages = index.search(embedder.embed((case.question,)), top_k=DEFAULT_TOP_K)
         cosine_scores[case.question] = passages[0].score if passages else 0.0
         try:
             best = max(
