@@ -4,7 +4,7 @@ import httpx
 import numpy as np
 import pytest
 
-from edgar_rag.domain import EmbedderSpec, Generation
+from edgar_rag.domain import EmbedderSpec, Generation, NotRecorded
 from edgar_rag.eval.replay import (
     BRIER,
     EMBED,
@@ -57,6 +57,11 @@ def test_a_miss_in_replay_says_to_re_record_locally(tmp_path):
         TapedEmbedder(Tape.open(tmp_path), SPEC).embed(("never recorded",))
     with pytest.raises(TapeMiss, match="re-record locally"):
         TapedGenerator(Tape.open(tmp_path), "qwen3:8b", OPTIONS).generate("a prompt")
+
+
+def test_a_miss_is_the_domain_s_not_recorded_so_the_service_can_map_it(tmp_path):
+    with pytest.raises(NotRecorded):
+        TapedEmbedder(Tape.open(tmp_path), SPEC).embed(("never recorded",))
 
 
 def test_a_generation_replays_with_its_tokens_and_seconds(tmp_path):

@@ -49,6 +49,7 @@ from edgar_rag.eval.records import (
 )
 from edgar_rag.eval.replay import (
     BRIER,
+    GENERATION_KEY_OPTIONS,
     Tape,
     TapedEmbedder,
     TapedGenerator,
@@ -66,7 +67,6 @@ from edgar_rag.eval.runner import (
 from edgar_rag.gate import AllOf, BrierGate, CosineGate, GateError
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import (
-    GENERATION_OPTIONS,
     LOWERCASE_INPUT,
     REQUEST_TIMEOUT_SECONDS,
     ModelError,
@@ -79,7 +79,6 @@ FAILED = 1
 RUN_HELP = "ask a split's golden set through the answerer and write a run directory"
 REPORT_HELP = "print the markdown report of a run directory (no model, no network)"
 TAPED_BRIER_URL = "http://brier.tape"
-GENERATION_KEY_OPTIONS: dict[str, object] = {**GENERATION_OPTIONS, "think": False}
 
 
 def add_run_arguments(parser: argparse.ArgumentParser) -> None:
