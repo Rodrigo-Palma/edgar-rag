@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -173,6 +174,112 @@ def test_ingest_refuses_to_add_to_an_index_of_another_embedder(monkeypatch, tmp_
 
     assert code == 1
     assert capsys.readouterr().err.startswith("index: the index in")
+
+
+REPO_LOCK = Path(__file__).parents[1] / "eval" / "filings.lock.json"
+
+
+def _fake_ollama_embedding(seen: list[int] | None = None) -> httpx.MockTransport:
+    def handle(request: httpx.Request) -> httpx.Response:
+        texts = json.loads(request.content)["input"]
+        if seen is not None:
+            seen.append(len(texts))
+        return httpx.Response(200, json={"embeddings": [[1.0, float(len(t))] for t in texts]})
+
+    return httpx.MockTransport(handle)
+
+
+def test_ingest_indexes_pinned_filings_from_the_snapshots_without_edgar(tmp_path, capsys):
+    """No User-Agent is set: nothing is downloaded, only the local model is asked."""
+    index_dir = tmp_path / "index"
+
+    code = cli.main(
+        ["ingest", "--lock", str(REPO_LOCK), "--ticker", "AAPL", "--index-dir", str(index_dir)],
+        transport=_fake_ollama_embedding(),
+    )
+
+    assert code == 0
+    index = CorpusIndex.load(index_dir, SPEC)
+    assert [(f.cik, f.fiscal_year, f.accession) for f in index.filings] == [
+        (320193, 2024, "0000320193-24-000123"),
+        (320193, 2025, "0000320193-25-000079"),
+    ]
+    out = capsys.readouterr().out
+    assert "AAPL fiscal 2024 0000320193-24-000123: " in out
+    assert f"2 filings, {index.chunk_count} chunks added to {index_dir} in " in out
+
+
+def test_ingest_of_a_split_takes_only_its_companies(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDGAR_RAG_INDEX_DIR", str(tmp_path / "index"))
+    seen: list[int] = []
+
+    code = cli.main(
+        ["ingest", "--lock", str(REPO_LOCK), "--split", "dev", "--ticker", "KO"],
+        transport=_fake_ollama_embedding(seen),
+    )
+
+    assert code == 0
+    index = CorpusIndex.load(tmp_path / "index", SPEC)
+    assert {filing.cik for filing in index.filings} == {21344}
+    assert sum(seen) == index.chunk_count
+
+
+def test_ingest_from_a_lock_reports_a_ticker_it_does_not_pin(tmp_path, capsys):
+    code = cli.main(["ingest", "--lock", str(REPO_LOCK), "--ticker", "XOM"])
+
+    assert code == 1
+    assert capsys.readouterr().err.startswith("lock: the lock pins no filing of XOM")
+
+
+def test_ingest_from_a_missing_lock_fails_without_a_traceback(tmp_path, capsys):
+    code = cli.main(["ingest", "--lock", str(tmp_path / "filings.lock.json")])
+
+    assert code == 1
+    assert capsys.readouterr().err.startswith("lock:")
+
+
+def test_ingest_from_a_lock_stops_at_the_filing_the_model_failed_on(tmp_path, capsys):
+    failing = httpx.MockTransport(lambda request: httpx.Response(500))
+
+    code = cli.main(
+        ["ingest", "--lock", str(REPO_LOCK), "--ticker", "AAPL", "--index-dir", str(tmp_path)],
+        transport=failing,
+    )
+
+    assert code == 1
+    assert capsys.readouterr().err.startswith("AAPL fiscal 2024 0000320193-24-000123:")
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_ingest_from_a_lock_refuses_to_join_an_index_of_another_embedder(
+    tmp_path, monkeypatch, capsys
+):
+    arguments = ["ingest", "--lock", str(REPO_LOCK), "--ticker", "KO", "--index-dir", str(tmp_path)]
+    monkeypatch.setenv("EDGAR_RAG_EMBEDDING_MODEL", "mxbai-embed-large")
+    assert cli.main(arguments, transport=_fake_ollama_embedding()) == 0
+    monkeypatch.delenv("EDGAR_RAG_EMBEDDING_MODEL")
+
+    assert cli.main(arguments, transport=_fake_ollama_embedding()) == 1
+    assert capsys.readouterr().err.startswith("index: the index in")
+
+
+@pytest.mark.parametrize("extra", [["--split", "dev"], ["--ticker", "AAPL"]])
+def test_split_and_ticker_only_choose_among_pinned_filings(monkeypatch, capsys, extra):
+    monkeypatch.setenv("EDGAR_RAG_EDGAR_USER_AGENT", USER_AGENT)
+    transport, seen = _fake_sec_and_ollama()
+
+    code = cli.main(["ingest", "--cik", "320193", *extra], transport=transport)
+
+    assert code == 1
+    assert seen == []
+    assert "--lock" in capsys.readouterr().err
+
+
+def test_ingest_takes_either_a_cik_or_a_lock_not_both(capsys):
+    with pytest.raises(SystemExit) as raised:
+        cli.main(["ingest", "--cik", "320193", "--lock", str(REPO_LOCK)])
+
+    assert raised.value.code == 2
 
 
 def test_serve_runs_the_service_with_the_settings_from_the_environment(monkeypatch):

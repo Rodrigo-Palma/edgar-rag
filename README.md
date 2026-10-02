@@ -175,6 +175,18 @@ uv run edgar-rag ingest --cik 320193     # adds Apple's latest 10-K to the index
 uv run edgar-rag serve                   # serves on 127.0.0.1:8000
 ```
 
+The golden set's 48 filings are indexed from the text snapshots committed
+under `eval/`, the text the golden set was checked against, so nothing is
+downloaded and every answerable case stays answerable from the index:
+
+```bash
+uv run edgar-rag ingest --lock eval/filings.lock.json              # all 48
+uv run edgar-rag ingest --lock eval/filings.lock.json --split dev  # the 8 of the dev split
+```
+
+All 48 make 23,904 passages and took 5 min 37 s to embed with Ollama on an
+Apple M3 Max; embedding the same text twice gave byte-identical vectors.
+
 Every question names the filing it is about: `cik` is required, and
 `fiscal_year` picks one of the company's indexed years (the latest when left
 out). The search never leaves that filing, and a company or year with no
@@ -291,7 +303,7 @@ default. Both are needed before it listens anywhere else.
 
 | Path | What lives there |
 |---|---|
-| `src/edgar_rag/cli.py` | the `edgar-rag` command: `ingest`, `serve`, `eval power` |
+| `src/edgar_rag/cli.py` | the `edgar-rag` command: `ingest`, `serve`, `eval` |
 | `src/edgar_rag/service/` | the service: composition at startup, limits, the JSON contract, error mapping |
 | `src/edgar_rag/eval/` | evaluation statistics: metrics, cluster bootstrap, numeric matching, power |
 | `src/edgar_rag/ingest.py` | a filing into a shard of the index: parse, chunk, embed in batches |

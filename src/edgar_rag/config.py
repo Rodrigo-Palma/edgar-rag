@@ -73,6 +73,13 @@ class IngestSettings(_SharedSettings):
         return validate_user_agent(user_agent)
 
 
+class SnapshotIngestSettings(_SharedSettings):
+    """Settings for indexing the golden set's pinned filings from their snapshots.
+
+    Nothing is downloaded, so no SEC contact is asked for.
+    """
+
+
 class EvalSettings(_SharedSettings):
     """Settings for comparing gates over an existing index."""
 
