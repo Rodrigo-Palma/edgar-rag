@@ -5,7 +5,7 @@ SRC := src tests scripts
 
 .DEFAULT_GOAL := help
 .PHONY: help sync check lint format typecheck imports test audit serve demo image up down \
-	ingest eval eval-full eval-ci eval-ci-baseline eval-ci-record cosine-threshold
+	ingest eval eval-full eval-ci eval-ci-baseline eval-ci-record cosine-threshold readme
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -13,7 +13,7 @@ help: ## List the targets
 sync: ## Install the locked dependencies, dev tools included
 	uv sync --frozen
 
-check: lint typecheck imports test ## Everything CI checks except the dependency audit
+check: lint typecheck imports test readme ## Everything CI checks except the dependency audit
 
 lint: ## Lint and check formatting
 	$(UV_RUN) ruff check $(SRC)
@@ -31,6 +31,9 @@ imports: ## Layer contracts between modules (import-linter)
 
 test: ## Tests with branch coverage, failing under 85%
 	$(UV_RUN) pytest --cov=edgar_rag --cov-report=term --cov-fail-under=85
+
+readme: ## Every number in README.md is copied from docs/eval/ (no model, no network)
+	$(UV_RUN) python scripts/check_readme_numbers.py
 
 audit: ## Known vulnerabilities in the locked dependencies (needs network)
 	@tmp=$$(mktemp) && trap 'rm -f "$$tmp"' EXIT && \
