@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # `make demo`: the service in replay mode, asked the two questions the README
 # shows, with no model running. It runs the period+cosine gate, not the
-# default none, so the second question shows a decline before generation. The index is eval/ci/index and the replies come
-# from the qwen3:8b tape in eval/ci/tape; both need `git lfs pull` in the clone.
+# default none, so the second question shows a decline before generation.
+# The index is eval/ci/index and the replies come from the qwen3:8b tape in
+# eval/ci/tape; both need `git lfs pull` in the clone.
 set -euo pipefail
 
 port="${EDGAR_RAG_DEMO_PORT:-8077}"

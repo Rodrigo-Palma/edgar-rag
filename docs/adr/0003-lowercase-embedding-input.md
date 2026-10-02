@@ -6,7 +6,8 @@
 ## Context
 
 On Ollama 0.18.0 with `nomic-embed-text`, every capitalised token collapses onto
-one vector. Measured (README, "The embedder was discarding every proper noun"):
+one vector. Measured ([README at `7b0d9ae`, "The embedder was throwing away every
+proper noun"](https://github.com/Rodrigo-Palma/edgar-rag/blob/7b0d9ae/README.md#the-embedder-was-throwing-away-every-proper-noun)):
 
 - `cos("Apple", "Cat") = 1.0000` and `cos("Apple", "Zebra") = 1.0000`, while
   `cos("apple", "petrobras") = 0.4075`.

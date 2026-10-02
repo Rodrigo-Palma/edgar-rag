@@ -4,7 +4,7 @@ Question answering over SEC 10-K filings that cites the passage it used and
 declines when the filing does not support an answer.
 
 [![CI](https://github.com/Rodrigo-Palma/edgar-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/Rodrigo-Palma/edgar-rag/actions/workflows/ci.yml)
-· MIT · Runs locally; there is no hosted instance (see [Running it](#running-it)).
+· v1.0.0 · MIT · Runs locally; there is no hosted instance (see [Running it](#running-it)).
 
 ## Result
 
@@ -169,7 +169,7 @@ only the golden set's questions as written there; any other question gets
 flowchart LR
   Q["question + scope<br/>(cik, fiscal_year)"] --> E["embed<br/>lower-cased"]
   E --> S["search the scoped filing<br/>exact cosine, top_k"]
-  S --> G{"gate<br/>none | period+cosine"}
+  S --> G{"gate<br/>none | cosine | period+cosine"}
   G -- declined --> X["abstain with a reason<br/>the model is never called"]
   G -- admitted --> L["generate<br/>passages as untrusted data,<br/>refusal token drawn per request"]
   L --> V{"verify citations<br/>marker per claim,<br/>every amount in the cited passage"}
@@ -198,7 +198,7 @@ abstains with `out_of_scope` before anything runs.
 | The JSON above is the shape the service returns | [`tests/test_readme_contract.py`](tests/test_readme_contract.py) |
 | Every number in this README is copied from the evaluation reports | [`scripts/check_readme_numbers.py`](scripts/check_readme_numbers.py), run by `make check` and [`tests/test_readme_numbers.py`](tests/test_readme_numbers.py) |
 | The report is what the frozen run produces | CI job "report reproduces": `make eval` leaves `docs/eval/` unchanged |
-| No test reaches the network or a model | [`no_network`](tests/conftest.py), an autouse fixture that fails any real socket through httpx |
+| No test reaches the network or a model | [`no_network`](tests/conftest.py), an autouse fixture that fails any real socket through httpx's synchronous transport (the async path is not covered) |
 
 What the citation check does not verify: wording without digits (a cited
 sentence can still paraphrase wrongly), figures the model computed rather than
@@ -220,6 +220,7 @@ False answers by kind of unanswerable question (n=75 each, Wilson 95%):
 | arm | off_domain | other_company | unreported_concept | wrong_year |
 |---|---|---|---|---|
 | A no gate | 1/75 = 1.3% [0.2%, 7.2%] | 9/75 = 12.0% [6.4%, 21.3%] | 3/75 = 4.0% [1.4%, 11.1%] | 0/75 = 0.0% [0.0%, 4.9%] |
+| D period guard | 1/75 = 1.3% [0.2%, 7.2%] | 9/75 = 12.0% [6.4%, 21.3%] | 3/75 = 4.0% [1.4%, 11.1%] | 0/75 = 0.0% [0.0%, 4.9%] |
 | F period guard + cosine | 0/75 = 0.0% [0.0%, 4.9%] | 1/75 = 1.3% [0.2%, 7.2%] | 2/75 = 2.7% [0.7%, 9.2%] | 0/75 = 0.0% [0.0%, 4.9%] |
 
 Arm D on `wrong_year` is low by construction: the guard and the label share
@@ -361,7 +362,7 @@ git lfs pull --include="eval/runs/v1/tape/**" --exclude=""
 With a model (Ollama on the host):
 
 ```bash
-cp .env.example .env             # the SEC requires a real contact in EDGAR_RAG_EDGAR_USER_AGENT
+cp .env.example .env             # a real SEC contact is needed only to download a new filing
 ollama pull nomic-embed-text && ollama pull qwen3:32b
 make ingest                      # the 48 pinned filings, from the committed snapshots
 make serve                       # 127.0.0.1:8000, default gate none
