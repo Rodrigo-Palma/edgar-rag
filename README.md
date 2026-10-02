@@ -4,14 +4,58 @@ Question answering over SEC 10-K filings that cites the passage it used and
 declines when the filing does not support an answer.
 
 [![CI](https://github.com/Rodrigo-Palma/edgar-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/Rodrigo-Palma/edgar-rag/actions/workflows/ci.yml)
-· v1.0.0 · MIT · Runs locally; there is no hosted instance (see [Running it](#running-it)).
+![release](https://img.shields.io/badge/release-v1.0.0-blue)
+![python](https://img.shields.io/badge/python-3.13-blue)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+The outcome, in the sentence the [protocol](docs/eval/protocol.md) fixed
+before the run ([addendum](docs/eval/report-v1-addendum.md)):
+
+> With no gate, the model answered 13 of 300 unanswerable questions (FAR 4.3%,
+> Wilson 95% [2.5%, 7.3%]). No pre-generation gate can remove more false
+> answers than the model gives, so H1 was not attainable on this set. What the
+> gate changes is cost: arm F spends 6.59 generator seconds per question
+> against 13.21 for arm A, at a recall cost of 0.6% [99% interval +0.0 to
+> +2.2 p.p.].
+
+So the service ships with no gate, H2 was not met, and the relevance model it
+started from was removed
+([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
+
+<img src="docs/media/demo.gif" alt="make demo: one cited answer and one out_of_period decline, replayed with no model" width="820">
+
+`make demo`, replayed from a recorded tape: no model and no network; the
+index, search, gate and citation check run for real
+([source](docs/media/demo.tape)).
+
+[Result](#result) · [Try it](#try-it) · [How it works](#how-it-works) ·
+[Guarantees](#guarantees-and-the-test-that-enforces-each) ·
+[Evaluation](#evaluation) · [What failed](#what-failed-and-why) ·
+[Running it](#running-it) · [Limitations](#limitations)
 
 ## Result
 
-Pre-registered evaluation on 20 companies, 40 filings (fiscal 2024 and 2025),
-with one generation per question shared by every arm. False answers are
-answers to the 300 unanswerable questions; recall cost is the share of the 180
-answerable questions arm A answers correctly and the arm declines.
+```mermaid
+flowchart LR
+  Q["eval split<br/>300 unanswerable, 180 answerable<br/>20 companies"] --> R["retrieve once per question<br/>score every gate:<br/>period, cosine, brier"]
+  T["cosine and brier thresholds<br/>cross-fitted by company<br/>two folds, R90"] -.-> M
+  R --> G["one generation per question<br/>qwen3:32b, temperature 0"]
+  G --> M{"six arms<br/>masks over the<br/>same generation"}
+  M --> A["A none"]
+  M --> B["B cosine"]
+  M --> C["C brier (removed)"]
+  M --> D["D period"]
+  M --> E["E period + brier (removed)"]
+  M --> F["F period + cosine"]
+  A -. "H1: FAR(A) - FAR(F)" .- F
+  E -. "H2: FAR(E) - FAR(F), paired" .- F
+```
+
+An arm decides only whether the shared generation is kept, so every difference
+between arms is a difference in the gate
+([ADR-0015](docs/adr/0015-one-generation-serves-every-arm.md)). False answers
+are answers to the 300 unanswerable questions; recall cost is the share of the
+180 answerable questions arm A answers correctly and the arm declines.
 
 | arm | false answers on unanswerable (n=300), Wilson 95% | company bootstrap 95% | recall cost (n=180), Wilson 95% | generator s / question |
 |---|---|---|---|---|
@@ -22,22 +66,13 @@ answerable questions arm A answers correctly and the arm declines.
 | E period guard + relevance model (removed) | 5/300 = 1.7% [0.7%, 3.8%] | [0.0%, 3.7%] | 3/180 = 1.7% [0.6%, 4.8%] | 7.62 |
 | F period guard + cosine (latency option) | 3/300 = 1.0% [0.3%, 2.9%] | [0.0%, 2.3%] | 1/180 = 0.6% [0.1%, 3.1%] | 6.59 |
 
-20 companies, 15 unanswerable and 9 answerable questions each; cosine and
-brier thresholds cross-fitted by company in two folds of 10, at the score that
-admits 90% of the answerable questions of the opposite fold. Generator
-`qwen3:32b`, `temperature=0`, on an Apple M3 Max, 2026-10-02.
+20 companies, 15 unanswerable and 9 answerable questions each, 40 filings
+(fiscal 2024 and 2025); cosine and brier thresholds cross-fitted by company in
+two folds of 10, at the score that admits 90% of the answerable questions of
+the opposite fold. Generator `qwen3:32b`, `temperature=0`, on an Apple M3 Max,
+2026-10-02.
 
-The sentence the [protocol](docs/eval/protocol.md) fixed in advance for this
-outcome (section 7), quoted from the [addendum](docs/eval/report-v1-addendum.md):
-
-> With no gate, the model answered 13 of 300 unanswerable questions (FAR 4.3%,
-> Wilson 95% [2.5%, 7.3%]). No pre-generation gate can remove more false
-> answers than the model gives, so H1 was not attainable on this set. What the
-> gate changes is cost: arm F spends 6.59 generator seconds per question
-> against 13.21 for arm A, at a recall cost of 0.6% [99% interval +0.0 to
-> +2.2 p.p.].
-
-What the two confirmatory comparisons read, copied from the
+The two confirmatory comparisons, copied from the
 [report](docs/eval/report-v1.md) (99% company-bootstrap intervals, MDE at 80%
 power beside each):
 
@@ -49,6 +84,18 @@ power beside each):
 
 A difference smaller than the MDE printed beside it is not distinguishable at
 this n.
+
+```mermaid
+xychart-beta
+  title "Generator seconds per question, by arm"
+  x-axis ["A none", "B cosine", "C brier", "D period", "E period+brier", "F period+cosine"]
+  y-axis "generator s / question" 0 --> 14
+  bar [13.21, 8.24, 9.58, 11.08, 7.62, 6.59]
+```
+
+Mean generator seconds per question on the eval split, exploratory per the
+addendum. False answers are in the table above and not charted: a bar cannot
+show their intervals.
 
 What follows, by the rules of section 9 written before the run:
 
@@ -70,63 +117,49 @@ filings of large US companies on this hardware and runtime.
 
 ## Try it
 
-No model needed: `make demo` starts the service in replay mode and asks it two
-questions. The question embeddings and the generations come from the tape
-`qwen3:8b` recorded over the dev split (`eval/ci/tape`); the index
-(`eval/ci/index`), the search, the gate and the citation check run for real.
-The demo sets `EDGAR_RAG_GATE=period+cosine`, so the second question is
-declined before any model would be asked. `make demo` sends both requests
-itself, prints the two responses below, checks them and stops the server.
-
 ```bash
 git lfs install       # once, before cloning: the CI index and tape live in Git LFS
 uv sync --frozen
 make demo
 ```
 
-The same requests against `make serve`, which listens on `127.0.0.1:8000`:
+No model needed: the embeddings and generations come from the tape `qwen3:8b`
+recorded over the dev split (`eval/ci/tape`), and the demo runs
+`EDGAR_RAG_GATE=period+cosine`, so the second question is declined before any
+model would be asked. The same requests against `make serve`
+(`127.0.0.1:8000`):
 
 ```bash
 curl -s localhost:8000/ask -H 'content-type: application/json' \
   -d '{"cik": 320193, "fiscal_year": 2025, "question": "How much revenue did Apple report for fiscal year 2025?"}'
+curl -s localhost:8000/ask -H 'content-type: application/json' \
+  -d '{"cik": 320193, "fiscal_year": 2025, "question": "What cash dividends did Apple pay to shareholders in fiscal 2020?"}'
 ```
+
+<details><summary>Response: a cited answer</summary>
 
 ```json
 {
   "question": "How much revenue did Apple report for fiscal year 2025?",
   "text": "Apple reported total net sales of $416,161 million for fiscal year 2025 [2].",
-  "citations": [
-    {
-      "marker": 2,
-      "item": "Item 8",
-      "title": "Financial Statements and Supplementary Data",
-      "quote": "... CONSOLIDATED STATEMENTS OF OPERATIONS\n(In millions, except number of shares, ...)\nYears ended\nSeptember 27,\n2025 ...",
-      "score": 0.7566
-    }
-  ],
+  "citations": [{"marker": 2, "item": "Item 8", "title": "Financial Statements and Supplementary Data",
+                 "quote": "... CONSOLIDATED STATEMENTS OF OPERATIONS\n(In millions, except number of shares, ...)\nYears ended\nSeptember 27,\n2025 ...", "score": 0.7566}],
   "abstained": false,
   "reason": null,
   "detail": "the question names fiscal 2025; this filing reports fiscal 2023 to 2025; best passage scored 0.758",
   "retrieval_score": 0.7582,
   "gate_score": 0.7582,
   "degraded": false,
-  "source": {
-    "company": "Apple Inc.",
-    "cik": 320193,
-    "fiscal_year": 2025,
-    "accession": "0000320193-25-000079",
-    "form": "10-K",
-    "filing_date": "2025-10-31",
-    "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
-  },
+  "source": {"company": "Apple Inc.", "cik": 320193, "fiscal_year": 2025, "accession": "0000320193-25-000079",
+             "form": "10-K", "filing_date": "2025-10-31",
+             "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"},
   "replayed": true
 }
 ```
 
-```bash
-curl -s localhost:8000/ask -H 'content-type: application/json' \
-  -d '{"cik": 320193, "fiscal_year": 2025, "question": "What cash dividends did Apple pay to shareholders in fiscal 2020?"}'
-```
+</details>
+
+<details><summary>Response: an out_of_period decline</summary>
 
 ```json
 {
@@ -139,48 +172,47 @@ curl -s localhost:8000/ask -H 'content-type: application/json' \
   "retrieval_score": 0.7609,
   "gate_score": 0.7609,
   "degraded": false,
-  "source": {
-    "company": "Apple Inc.",
-    "cik": 320193,
-    "fiscal_year": 2025,
-    "accession": "0000320193-25-000079",
-    "form": "10-K",
-    "filing_date": "2025-10-31",
-    "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
-  },
+  "source": {"company": "Apple Inc.", "cik": 320193, "fiscal_year": 2025, "accession": "0000320193-25-000079",
+             "form": "10-K", "filing_date": "2025-10-31",
+             "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"},
   "replayed": true
 }
 ```
 
-The responses are the demo's (replay, `period+cosine`), with the long quote
-trimmed to `...`; a live `make serve` with the default gate asks the model both
-questions, so its replies can differ.
-`reason` is one of `gate_rejected`, `out_of_period`, `model_declined`,
-`no_valid_citation`, `unsupported_claim` or `out_of_scope`, and `null` on an
-answer. `gate_score` is the relevance gate's own score (cosine similarity
-here). `degraded` is true when a gate decided on part of its evidence; neither
-built-in gate depends on a service, so with them it is false. Replay answers
-only the golden set's questions as written there; any other question gets
-`404 not recorded`. The full schema is served at `/openapi.json`.
+</details>
+
+The responses are the demo's (replay, `period+cosine`, the long quote trimmed
+to `...`); a live `make serve` with the default gate asks the model both
+questions, so its replies can differ. `reason` is one of `gate_rejected`,
+`out_of_period`, `model_declined`, `no_valid_citation`, `unsupported_claim` or
+`out_of_scope`, and `null` on an answer. `gate_score` is the relevance gate's
+own score. `degraded` is true when a gate decided on part of its evidence,
+which neither built-in gate does. Replay answers only the golden set's
+questions as written there, and any other with `404 not recorded`. The full
+schema is served at `/openapi.json`.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  Q["question + scope<br/>(cik, fiscal_year)"] --> E["embed<br/>lower-cased"]
-  E --> S["search the scoped filing<br/>exact cosine, top_k"]
-  S --> G{"gate<br/>none | cosine | period+cosine"}
-  G -- declined --> X["abstain with a reason<br/>the model is never called"]
-  G -- admitted --> L["generate<br/>passages as untrusted data,<br/>refusal token drawn per request"]
-  L --> V{"verify citations<br/>marker per claim,<br/>every amount in the cited passage"}
-  V -- fails --> X
+  Q["question + scope<br/>(cik, fiscal_year)"] --> SC{"a filing indexed<br/>for this scope?"}
+  SC -- no --> X1["abstain<br/>out_of_scope"]
+  SC -- yes --> E["embed<br/>lower-cased"]
+  E --> S["exact cosine search<br/>inside that filing, top_k"]
+  S --> G{"gate<br/>none (default) · cosine · period+cosine"}
+  G -- declined --> X2["abstain<br/>out_of_period, gate_rejected<br/>the model is never called"]
+  G -- admitted --> L["generate<br/>passages as untrusted data<br/>refusal token drawn per request"]
+  L -- refusal token --> X3["abstain<br/>model_declined"]
+  L -- text --> V{"verify citations<br/>a marker per claim<br/>every amount in the cited passage"}
+  V -- fails --> X4["abstain<br/>no_valid_citation, unsupported_claim"]
   V -- holds --> A["answer + citations<br/>quoted from the passage"]
 ```
 
 Every request names the filing it is about: `cik` is required and
 `fiscal_year` picks one of the company's indexed years (the latest when left
-out). The search never leaves that filing, and a scope with no indexed filing
-abstains with `out_of_scope` before anything runs.
+out). The search never leaves that filing. The request, participant by
+participant, including the busy response when every generation slot is taken:
+[docs/architecture.md](docs/architecture.md#a-request).
 
 ## Guarantees and the test that enforces each
 
@@ -190,21 +222,18 @@ abstains with `out_of_scope` before anything runs.
 | The refusal token is drawn per request, and only that exact token is a refusal | [`test_one_answered_request_draws_exactly_one_nonce`](tests/test_injection.py), [`test_two_requests_to_one_answerer_carry_different_refusal_tokens`](tests/test_injection.py), [`test_only_the_exact_token_is_a_refusal`](tests/test_injection.py) |
 | Filing text is untrusted: it cannot close the passages block, open a turn, fake a citation or force a refusal | [`test_a_nested_closing_tag_cannot_close_the_block`](tests/test_injection.py), [`test_a_passage_cannot_open_a_new_turn`](tests/test_injection.py), [`test_no_citation_marker_survives_in_a_passage`](tests/test_injection.py), [`test_the_refusal_phrase_is_removed_in_any_spelling`](tests/test_injection.py) |
 | A sentence with a figure, or a long one, cites a retrieved passage, or the answer abstains with `no_valid_citation` | [`test_a_sentence_with_a_figure_and_no_marker_abstains`](tests/test_citation_check.py), [`test_a_long_sentence_with_no_marker_abstains`](tests/test_citation_check.py) |
-| Every amount written in digits in a cited sentence matches a number of a passage it cites, or of that passage's item label, at the precision shown (at any scale from ones to billions when either number has no scale word), or the answer abstains with `unsupported_claim`; an amount written in words is not checked | [`test_a_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_an_injected_figure_cited_to_a_legitimate_passage_abstains`](tests/test_citation_check.py) |
+| Every amount written in digits in a cited sentence matches a number of a passage it cites, or the answer abstains with `unsupported_claim` | [`test_a_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_an_injected_figure_cited_to_a_legitimate_passage_abstains`](tests/test_citation_check.py) |
 | A search never returns a passage of another filing | [`test_a_search_never_returns_a_passage_of_another_filing`](tests/test_corpus_index.py), [`test_a_question_is_never_answered_from_another_company_s_filing`](tests/test_answerer.py) |
 | The service refuses an index built by another embedder, or a shard changed after it was written | [`test_the_service_refuses_to_start_on_an_index_from_another_embedder`](tests/test_api.py), [`test_the_service_refuses_to_start_on_a_shard_that_changed`](tests/test_api.py) |
 | A gate that decided on part of its evidence is reported as `degraded`, up to the HTTP response | [`test_a_degraded_gate_is_reported_on_an_answer`](tests/test_answer_contract.py), [`test_a_partly_judged_refusal_reaches_the_client_as_degraded`](tests/test_api.py) |
 | The period guard never declines a year the filing reports | [`test_a_question_in_a_reported_year_is_never_declined`](tests/test_period.py) (property test) |
 | The JSON above is the shape the service returns | [`tests/test_readme_contract.py`](tests/test_readme_contract.py) |
-| Every number in this README is copied from the evaluation reports | [`scripts/check_readme_numbers.py`](scripts/check_readme_numbers.py), run by `make check` and [`tests/test_readme_numbers.py`](tests/test_readme_numbers.py) |
+| Every number in this README, its diagrams included, is copied from the evaluation reports | [`scripts/check_readme_numbers.py`](scripts/check_readme_numbers.py), run by `make check` and [`tests/test_readme_numbers.py`](tests/test_readme_numbers.py) |
 | The report is what the frozen run produces | CI job "report reproduces": `make eval` leaves `docs/eval/` unchanged |
 | No test reaches the network or a model | [`no_network`](tests/conftest.py), an autouse fixture that fails any real socket through httpx's synchronous transport (the async path is not covered) |
 
-What the citation check does not verify: wording without digits (a cited
-sentence can still paraphrase wrongly), figures the model computed rather than
-copied (a growth rate the passage does not print is withheld even when it is
-right), and the scale of a figure the passage prints without one, which is
-accepted from ones to billions because tables state the unit once in a header.
+What the citation check does not verify, the scale of a figure among them, is
+in [Limitations](#limitations).
 
 ## Evaluation
 
@@ -212,50 +241,51 @@ accepted from ones to billions because tables state the unit once in a header.
 [report](docs/eval/report-v1.md) (regenerated by `make eval`) ·
 [addendum](docs/eval/report-v1-addendum.md) (headline sentence, and which
 parts are confirmatory) · [deviations](docs/eval/deviations-v1.md).
+Everything in this section is exploratory or descriptive, per the addendum;
+the full tables are in the report.
 
-Everything in this section is exploratory or descriptive, per the addendum.
+- **The model errs where the question is about another company:**
+  `other_company` false answers 9/75 = 12.0% [6.4%, 21.3%] under arm A, 1/75 =
+  1.3% [0.2%, 7.2%] under arm F.
+- **Gate only, every golden question of the eval split:** AUROC cosine 0.834
+  [0.820, 0.849] against brier 0.732 [0.713, 0.755].
+- **Risk against coverage, end to end:** AURC 0.372 for brier against 0.418
+  for cosine (lower is better); exploratory and not part of the brier rule.
+- **Narratives written by hand, never pooled:** the correct decision under arm
+  A on 36/40 = 90.0% [76.9%, 96.0%]; the expected `Item` cited on 10/12 = 83.3%
+  [55.2%, 95.3%] of the answered ones whose filing passes the split rule.
+- **Determinism:** the same prompt sent twice gave identical text in 30/30 =
+  100.0% [88.6%, 100.0%].
 
-False answers by kind of unanswerable question (n=75 each, Wilson 95%):
+## What failed and why
 
-| arm | off_domain | other_company | unreported_concept | wrong_year |
-|---|---|---|---|---|
-| A no gate | 1/75 = 1.3% [0.2%, 7.2%] | 9/75 = 12.0% [6.4%, 21.3%] | 3/75 = 4.0% [1.4%, 11.1%] | 0/75 = 0.0% [0.0%, 4.9%] |
-| D period guard | 1/75 = 1.3% [0.2%, 7.2%] | 9/75 = 12.0% [6.4%, 21.3%] | 3/75 = 4.0% [1.4%, 11.1%] | 0/75 = 0.0% [0.0%, 4.9%] |
-| F period guard + cosine | 0/75 = 0.0% [0.0%, 4.9%] | 1/75 = 1.3% [0.2%, 7.2%] | 2/75 = 2.7% [0.7%, 9.2%] | 0/75 = 0.0% [0.0%, 4.9%] |
+**Wrong-year questions.** A relevance score cannot see a year: cosine and the
+relevance model both admitted questions about another year in the first
+prototype. `PeriodGuard` (`src/edgar_rag/period.py`) declines a year the filing
+does not report; on the headline run the model refused all of them itself
+(arm A, 0/75), so the guard bought nothing there.
 
-Arm D on `wrong_year` is low by construction: the guard and the label share
-one definition of the period a filing covers.
+**The embedder discarded every proper noun.** On Ollama `0.18.0` with
+`nomic-embed-text` a capitalised token collapses onto one vector
+([ollama/ollama#15609](https://github.com/ollama/ollama/issues/15609)). Every
+text is lower-cased before embedding, and the flag is part of the index
+fingerprint ([ADR-0003](docs/adr/0003-lowercase-embedding-input.md)).
 
-Among the questions an arm answered (Wilson 95%):
+**The section split is noisy.** `split_into_sections` mislabels some filings,
+so the one metric that depends on the label is reported only on filings that
+pass a mechanical rule fixed before the run; it fails 15 of the 48 filings,
+which is why that metric stands on 10/12. No headline number depends on it
+([protocol](docs/eval/protocol.md), section 11, D-02).
 
-| arm | numeric accuracy | citation support (cited passage holds the gold value) |
-|---|---|---|
-| A no gate | 51/88 = 58.0% [47.5%, 67.7%] | 61/88 = 69.3% [59.0%, 78.0%] |
-| F period guard + cosine | 48/80 = 60.0% [49.0%, 70.0%] | 58/80 = 72.5% [61.9%, 81.1%] |
+**Two companies left the roster.** XOM and HD failed the roster rule and were
+replaced by LLY and PEP from the reserve list, in order, before any
+generation. Energy is left with CVX alone; no hypothesis is by sector
+([protocol](docs/eval/protocol.md), section 11, D-01).
 
-Gate only, every golden question of the eval split (3076 answerable and 3076
-unanswerable, 20 companies):
-
-| gate | AUROC, company bootstrap 95% | false answers at R90 | realised recall |
-|---|---|---|---|
-| cosine | 0.834 [0.820, 0.849] | 38.8% | 88.0% |
-| brier | 0.732 [0.713, 0.755] | 55.7% | 88.1% |
-| period guard (a rule, no score) | n/a | 75.0% | 100.0% |
-
-Risk against coverage, end to end, admitting in decreasing score order: the
-area under the risk-coverage curve (AURC, lower is better) is 0.372 for brier
-against 0.418 for cosine, so on this view brier makes fewer errors at every
-coverage the report prints (four). It is exploratory and not part of the brier
-rule.
-
-Narrative questions, written by hand and never pooled: the correct decision
-(answer when answerable, abstain when not) under arm A on 36/40 = 90.0%
-[76.9%, 96.0%], 18 companies. The expected `Item` cited on 10/12 = 83.3%
-[55.2%, 95.3%] of the answered answerable ones whose filing passes the split
-sanity rule (see [What failed](#what-failed-and-why)).
-
-Determinism: the same prompt sent twice gave identical text in 30/30 = 100.0%
-[88.6%, 100.0%].
+**The relevance model lost.** brier ranked worse than cosine on the gate-only
+tier and did not beat it behind the guard (H2 not met). By the rule fixed
+before the run it was removed; its scores stay published in the report
+([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
 
 ## Operating it
 
@@ -271,53 +301,8 @@ period guard, cosine and brier together):
 
 A decline costs nearly as much as an answer when the model is the one that
 declines; a gate decline costs the embedding, the search and the gate.
-Limits, the log line, `/health`, tokens per outcome and the container:
-[docs/operations.md](docs/operations.md).
-
-## What failed and why
-
-**Wrong-year questions.** A relevance score cannot see a year: a question about
-revenue five years back sits next to the revenue passage of the filing, and
-that passage answers it, for another year. Both cosine and the relevance model
-admitted such questions in the first prototype. `PeriodGuard`
-(`src/edgar_rag/period.py`) reads the years a question names and declines one
-the filing does not report, using the filing's metadata and never its XBRL
-values. On the headline run the model refused every wrong-year question by
-itself (arm A, 0/75), so the guard bought nothing there; its figure on that
-kind is by construction.
-
-**The embedder discarded every proper noun.** On Ollama `0.18.0` with
-`nomic-embed-text`, a capitalised token collapses onto one vector, so two
-sentences differing only in a company name embed identically. This is
-[ollama/ollama#15609](https://github.com/ollama/ollama/issues/15609); the
-issue frames it as a non-ASCII problem and a 10-K shows it is wider. Every
-text is lower-cased before embedding, at ingest and at query time, and the
-flag is part of the index fingerprint
-([ADR-0003](docs/adr/0003-lowercase-embedding-input.md) has the measurements).
-
-**The section split is noisy.** `split_into_sections` mislabels some filings:
-JPM, MCD and NVDA were seen while building the golden set. Only one metric
-depends on the label, the expected `Item` of a narrative, so it is reported
-only on filings that pass a mechanical rule fixed before the run (at least 2
-items besides the full-filing fallback, none above 50% of the text, the
-expected item present). The rule fails 15 of the 48 filings and excludes 4 of
-the 20 answerable narratives (JNJ, CVX, DE and UNP, fiscal 2025), which is
-why that metric stands on 10/12. No headline number depends on the label.
-Fixing the parser would change the index, the golden set, the CI tape and the
-headline run together, so it is left to the next version, where the CI gate
-measures the change.
-
-**Two companies left the roster.** XOM (its ticker now maps to a new holding
-registrant with no 10-K) and HD (a fiscal 2024 report date in another calendar
-year) failed the roster rule and were replaced by LLY and PEP from the reserve
-list, in order, before any generation. Energy is left with CVX alone; no
-hypothesis is by sector.
-
-**The relevance model lost.** brier, an external calibrated relevance model
-plugged in as a gate, ranked worse than cosine on the gate-only tier (ΔAUROC -0.101,
-95% CI [-0.124, -0.080]) and did not beat it behind the guard (H2 not met). By
-the rule fixed before the run it was removed from the package; its scores stay
-published in the report.
+Limits, the log line, `/health`, tokens per outcome, the container and the
+run's tape: [docs/operations.md](docs/operations.md).
 
 ## Running it
 
@@ -357,31 +342,31 @@ needs a 32B model on a GPU, and a smaller hosted model would be another system
 than the one measured. The replay demo and the container stand in for it
 ([ADR-0016](docs/adr/0016-local-only-no-hosted-instance.md)).
 
-## Layout
+## Design
 
-Modules in import order, and a request participant by participant:
+```mermaid
+flowchart TB
+  L1["cli<br/>the edgar-rag command"] --> L2
+  L2["service · eval<br/>entry points"] --> L3
+  L3["ingest · answer · config<br/>the pipeline"] --> L4
+  L4["prompt · citations"] --> L5
+  L5["chunking · gate · index · models · period<br/>adapters"] --> L6
+  L6["edgar · telemetry · amounts · lfs"] --> L7
+  L7["domain<br/>values and ports"]
+```
+
+A module imports only from layers below its own, and modules in one box do not
+import each other. The answering core (answer, prompt, citations) reaches the
+adapters only through the ports in domain, and the evaluation statistics
+import no I/O, model or service. `make imports` fails the build on any of the
+three. The module table and a request participant by participant:
 [docs/architecture.md](docs/architecture.md).
 
-## Architecture decisions
-
-| ADR | decision |
-|---|---|
-| [ADR-0001](docs/adr/0001-abstain-before-generating.md) | Abstain before generating; the relevance gate is a port |
-| [ADR-0002](docs/adr/0002-exact-numpy-search-no-vector-database.md) | Exact NumPy search on disk, no vector database |
-| [ADR-0003](docs/adr/0003-lowercase-embedding-input.md) | Lower-case embedding input to work around ollama#15609 |
-| [ADR-0004](docs/adr/0004-index-format-shard-per-filing.md) | Index format 2: one shard per filing under a manifest that pins the embedder |
-| [ADR-0005](docs/adr/0005-retrieval-scope-in-the-request.md) | The retrieval scope is explicit in the request |
-| [ADR-0006](docs/adr/0006-closed-abstention-reasons.md) | Abstention reasons are a closed set, and the answer carries the gate score |
-| [ADR-0007](docs/adr/0007-golden-set-from-xbrl.md) | Generate the golden set from XBRL companyfacts and the filing text |
-| [ADR-0008](docs/adr/0008-eval-runs-the-production-pipeline.md) | The evaluation runs the production pipeline |
-| [ADR-0009](docs/adr/0009-ci-eval-gate-replayed.md) | CI eval gate: a replayed dev split against a committed baseline |
-| [ADR-0010](docs/adr/0010-injected-http-clients.md) | Reach models through injected HTTP clients, without a framework |
-| [ADR-0011](docs/adr/0011-composition-root-in-an-app-factory.md) | Compose the service once in an app factory; no DI framework |
-| [ADR-0012](docs/adr/0012-bounded-generations-one-log-line.md) | Bound concurrent generations and log one JSON line per request |
-| [ADR-0013](docs/adr/0013-filing-text-is-untrusted.md) | Filing text is untrusted input |
-| [ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md) | Remove the brier gate and default to no gate |
-| [ADR-0015](docs/adr/0015-one-generation-serves-every-arm.md) | One generation per question serves every evaluation arm |
-| [ADR-0016](docs/adr/0016-local-only-no-hosted-instance.md) | Local only, no hosted instance |
+Sixteen decisions in [docs/adr](docs/adr/README.md); the ones the result rests
+on are [ADR-0001](docs/adr/0001-abstain-before-generating.md),
+[ADR-0008](docs/adr/0008-eval-runs-the-production-pipeline.md),
+[ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md) and
+[ADR-0015](docs/adr/0015-one-generation-serves-every-arm.md).
 
 ## Limitations
 
@@ -406,12 +391,16 @@ Modules in import order, and a request participant by participant:
   [`test_a_year_that_names_a_plan_is_not_a_period`](tests/test_period.py)
   records it as an expected failure.
 - The citation check is weaker than "the cited passage states the figure". Any
-  number the passage shows backs a figure with the same digits, including the
-  item label and references to notes or pages: against a passage labelled
+  number the passage shows backs a figure with the same digits, the item label
+  and references to notes or pages included: against a passage labelled
   `Item 7` that says `See Note 3 on page 21`, the answers `$7 billion`, `7%`,
-  `$3.0 billion` and `$21 million` all pass. A figure in words
-  (`ninety billion dollars`) is not checked at all. How often this happened in
-  the v1 run was not measured; the fix and the measurement are planned for v1.1
+  `$3.0 billion` and `$21 million` all pass. A figure the passage prints with
+  no scale word is accepted at any scale from ones to billions, because tables
+  state the unit once in a header. Wording without digits can still paraphrase
+  wrongly, a figure in words (`ninety billion dollars`) is not checked, and a
+  figure the model computed (a growth rate the passage does not print) is
+  withheld even when it is right. How often this happened in the v1 run was
+  not measured; the fix and the measurement are planned for v1.1
   ([issue #10](https://github.com/Rodrigo-Palma/edgar-rag/issues/10),
   [issue #13](https://github.com/Rodrigo-Palma/edgar-rag/issues/13)).
 

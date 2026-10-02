@@ -16,10 +16,10 @@ fraction, and anything else as a numeric token; thousands separators and a
 leading plus are ignored, so ``6,192`` matches ``6192`` and ``+0.6`` matches
 ``0.6``. A ``mermaid`` block is a diagram the page renders, so it is checked
 like prose. Skipped, because they are not results: every other fenced code
-block (commands, and the JSON responses ``tests/test_readme_contract.py``
-holds against the service), inline code (settings, model names, paths), link targets, issue and
-pull request references (``#4``), ADR numbers (``ADR-0014``) and the form name
-``10-K``.
+block (commands, and the JSON responses ``tests/test_readme_contract.py`` holds
+against the service), inline code (settings, model names, paths), HTML tags,
+link targets, issue and pull request references (``#4``), ADR numbers
+(``ADR-0014``) and the form name ``10-K``.
 
 Exit status 1, with each missing number and its line, when one is not found.
 """
@@ -41,6 +41,7 @@ FENCE = re.compile(r"^\s*(```|~~~)\s*(\w*)")
 CHECKED_FENCES = frozenset({"mermaid"})
 NOT_RESULTS = (
     re.compile(r"`[^`]*`"),  # inline code
+    re.compile(r"</?[A-Za-z][^>]*>"),  # HTML tags and their attributes, such as an image width
     re.compile(r"\]\([^)]*\)"),  # link targets; the link text stays
     re.compile(r"https?://\S+"),
     re.compile(r"\w*#\d+"),  # ollama#15609, pull request #4

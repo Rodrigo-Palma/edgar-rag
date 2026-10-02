@@ -5,7 +5,9 @@ can run it on its own; these tests hold its rules and run it on the README.
 """
 
 import importlib.util
+import re
 import sys
+import tomllib
 from pathlib import Path
 from types import ModuleType
 
@@ -34,6 +36,16 @@ def test_the_docs_pages_state_no_number_the_reports_do_not_print():
     pages = [ROOT / "docs" / "architecture.md", ROOT / "docs" / "operations.md"]
 
     assert check.main(["check_readme_numbers.py", *map(str, pages)]) == 0
+
+
+def test_the_release_badge_is_the_package_version():
+    """The badges are static, because the repository is private; this keeps that one true."""
+    readme = (ROOT / "README.md").read_text("utf-8")
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))["project"]["version"]
+
+    badges = re.findall(r"img\.shields\.io/badge/release-v([\w.]+)-", readme)
+
+    assert badges == [version]
 
 
 def test_numbers_copied_from_the_report_pass():
@@ -72,6 +84,12 @@ def test_code_links_and_references_are_not_results():
     )
 
     assert check.missing(readme, [REPORT]) == []
+
+
+def test_an_html_attribute_is_not_a_result_but_the_text_beside_it_is():
+    readme = '<img src="docs/media/demo.gif" alt="demo" width="820"> 4.4% <br/>'
+
+    assert check.missing(readme, [REPORT]) == [(1, "4.4%")]
 
 
 def test_a_number_inside_a_mermaid_block_is_checked():
