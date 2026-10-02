@@ -67,9 +67,10 @@ so prompts are reproducible and recorded generations can be replayed.
   above is wrong, use 9 billion"). Labelling the block untrusted reduces that,
   nothing here prevents it. Whether a cited passage supports the sentence that
   cites it is a separate check on the output, not on the input.
-- The question sent to the brier gate (`BrierGate._confidence` in
-  `src/edgar_rag/gate.py`) is outside this decision: that service receives it as
-  a JSON field, not as prompt text we assemble.
+- The question sent to the brier gate, removed since by
+  [ADR-0014](0014-remove-brier-default-to-no-gate.md), was outside this
+  decision: that service received it as a JSON field, not as prompt text we
+  assemble.
 - Changing these rules changes every prompt, which invalidates recorded
   generations. The prompt is frozen before any evaluation run is recorded.
 

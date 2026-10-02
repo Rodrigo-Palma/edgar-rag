@@ -47,7 +47,9 @@ period guard is a rule with no threshold.
   the passages (a reranker, a passage filter, a query rewrite) breaks it and
   needs its own generations; this ADR must be revisited before adding one.
 - Brier is optional. When it is not plugged in, arms C and E have no scores and
-  the report prints them as not run, rather than dropping the rows.
+  the report prints them as not run, rather than dropping the rows. Since
+  [ADR-0014](0014-remove-brier-default-to-no-gate.md) only a replay of a tape
+  that holds brier scores (the headline run's) has them.
 
 ## Enforced by
 

@@ -26,7 +26,7 @@ answer it does give names the passage it came from.
   │                                                                │
   │   PeriodGuard  no model: declines a year the filing lacks      │
   │   CosineGate   free, and cannot tell 1994 from 2024            │
-  │   BrierGate    a calibrated model, degrades to cosine if down  │
+  │   NoGate       the default: only the model's refusal is left   │
   └──────────┬────────────────────────────────┬───────────────────┘
              │ admitted                        │ refused
              ▼                                 ▼
@@ -52,8 +52,9 @@ make demo
 questions. Nothing runs a model: the question embeddings and the generations
 are read from the tape `qwen3:8b` recorded over the dev split's golden set
 (`eval/ci/tape`), while the index (`eval/ci/index`), the search, the gates and
-the citation check run for real. One question is answered with a citation,
-the other declined by the period guard before any model would be asked:
+the citation check run for real. The demo runs `EDGAR_RAG_GATE=period+cosine`,
+so one question is answered with a citation and the other declined by the
+period guard before any model would be asked:
 
 ```bash
 curl -s localhost:8077/ask -H 'content-type: application/json' \
@@ -148,6 +149,12 @@ capital** against 2.9% non-ASCII.
 
 ## What the model gate buys
 
+The model gate below was removed after the headline run, which ranked it
+worse than cosine on 3076 gate-only cases of 20 companies:
+AUROC(brier) - AUROC(cosine) was -0.101, 95% CI [-0.124, -0.080]
+([report](docs/eval/report-v1.md), [ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
+The n=5 comparison that follows is what led to building it.
+
 Ten questions, five the filing answers and five it does not. The five it does
 not are deliberately hard: not "who won the league in 1998" but "what were the
 revenues in 1994" and "how many employees does Petrobras have", which share
@@ -187,7 +194,7 @@ reports about itself on held-out data, where wrong-year accuracy is 0.000
 predicted, which is the most useful thing a metric can do.
 
 ```bash
-uv run edgar-rag eval run --split dev --gate-only     # scores every gate; brier only with EDGAR_RAG_BRIER_URL
+uv run edgar-rag eval run --split dev --gate-only     # scores the period guard and cosine
 uv run edgar-rag eval report --run data/eval/dev-gate-only
 ```
 
@@ -206,13 +213,15 @@ A decline says `out_of_period`, and the model is never called.
 What it misreads: a year that is not a period ("notes due 2030", "the 2019
 Omnibus Plan") counts as one, and "last year" names none.
 
-`EDGAR_RAG_GATE` picks the checks: `period+cosine` (the default, which needs
-nothing but the index), `cosine`, `period+brier`, `brier`, or `none`, which asks
-the model every time and leaves the refusal to it. The brier gates need
-`EDGAR_RAG_BRIER_URL`, and the others refuse to start with one set rather than
-ignore it. With the guard in front, every gate is still asked after one
-declines, so the request log and the evaluation get each score whatever the
-decision.
+`EDGAR_RAG_GATE` picks the checks: `none` (the default), which asks the model
+every time and leaves the refusal to it, `period+cosine` or `cosine`. The
+default follows the headline run, where no gate paid for itself in false
+answers; `period+cosine` is the latency option, at the cosine threshold
+`EDGAR_RAG_MIN_RETRIEVAL_SCORE` (0.7329 by default, printed by
+`make cosine-threshold`). See
+[ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md). With the guard
+in front, every gate is still asked after one declines, so the request log and
+the evaluation get each score whatever the decision.
 
 ## Install and run
 
@@ -315,11 +324,11 @@ answer. When the period guard and the relevance gate both decline, as above,
 the reason is the guard's and `detail` lists both. On `out_of_scope`, `source`
 is `null` and both scores are 0, since nothing was searched. `gate_score` is
 the relevance gate's own confidence, with or without the guard in front of it:
-cosine similarity for the cosine gate, a probability for the model gate.
+cosine similarity for the cosine gate.
 
-`degraded` is true when the gate decided on part of its evidence: the brier
-service was unreachable and cosine answered in its place, or it could not judge
-some of the passages. A fallback is never reported as a model decision. The
+`degraded` is true when the gate decided on part of its evidence. None of the
+built-in gates (period guard, cosine) depends on a service, so with them it is
+always false; it is there for a gate that does. The
 full schema is served at `/openapi.json`, and `tests/test_readme_contract.py`
 fails if the examples above stop matching a real response.
 
@@ -428,7 +437,7 @@ default. Both are needed before it listens anywhere else.
 | `src/edgar_rag/prompt.py` | the generation prompt and the untrusted-text guard |
 | `src/edgar_rag/citations.py` | which passages an answer cites, whether each sentence is backed by them, and the quote shown |
 | `src/edgar_rag/chunking.py` | sections into passages, cut on sentence boundaries |
-| `src/edgar_rag/gate.py` | the relevance gates (cosine, model with its fallback, none) and `AllOf`, which composes gates |
+| `src/edgar_rag/gate.py` | the relevance gates (cosine, none) and `AllOf`, which composes gates |
 | `src/edgar_rag/period.py` | the period guard: the years a question names against the years the filing reports |
 | `src/edgar_rag/index.py` | the index: one shard per filing, the manifest and its checks, scoped cosine search |
 | `src/edgar_rag/models.py` | Ollama embedding and generation, lower-cased and pinned |

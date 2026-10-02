@@ -11,6 +11,7 @@ fact with the evidence that led to it.
 | [0001](0001-abstain-before-generating.md) | Abstain before generating; the relevance gate is a port | Accepted (retroactive) |
 | [0003](0003-lowercase-embedding-input.md) | Lower-case embedding input to work around ollama#15609 | Accepted (retroactive) |
 | [0013](0013-filing-text-is-untrusted.md) | Filing text is untrusted input | Accepted |
+| [0014](0014-remove-brier-default-to-no-gate.md) | Remove the brier gate and default to no gate | Accepted |
 | [0015](0015-one-generation-serves-every-arm.md) | One generation per question serves every evaluation arm | Accepted |
 
 Numbers are reserved in the order the decisions were planned, so gaps are

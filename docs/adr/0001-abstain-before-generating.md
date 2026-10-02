@@ -1,6 +1,6 @@
 # 0001. Abstain before generating; the relevance gate is a port
 
-- Status: Accepted (retroactive, decided in `7b0d9ae` on 2026-09-26)
+- Status: Accepted (retroactive, decided in `7b0d9ae` on 2026-09-26); amended by [0014](0014-remove-brier-default-to-no-gate.md)
 - Date: 2026-10-01
 
 ## Context
@@ -52,6 +52,12 @@ rejects with (`gate_rejected`, or `out_of_period` from the guard) and every
 score it computed, and `BrierGate` now asks about every passage, so its score
 no longer depends on its threshold.
 
+Amended on 2026-10-02 by [ADR-0014](0014-remove-brier-default-to-no-gate.md):
+the headline run measured `BrierGate` ranking worse than cosine, so it was
+removed, and the default gate is now `none`. The port, `CosineGate`,
+`PeriodGuard` and `AllOf` stand; the text above about `BrierGate` describes
+the code before that.
+
 ## Consequences
 
 - A refused question costs one embedding and one vector search (0.06 s measured
@@ -77,7 +83,6 @@ no longer depends on its threshold.
 
 - [`test_abstains_before_generating_when_retrieval_is_weak`](../../tests/test_answer.py): the fake generator records no prompt when the gate refuses.
 - [`test_abstains_when_the_model_says_the_filing_does_not_cover_it`](../../tests/test_answer.py) and [`test_an_answer_that_cites_nothing_is_an_abstention`](../../tests/test_answer.py): the post-generation paths are distinct from the gate's.
-- [`test_an_unreachable_brier_falls_back_to_cosine_and_says_it_did`](../../tests/test_gate.py) and [`test_an_unreachable_brier_without_a_fallback_is_an_error`](../../tests/test_gate.py): `degraded=True` on fallback, `GateError` without one.
-- [`test_each_gate_without_brier_is_built_as_named`](../../tests/test_api.py) and [`test_a_brier_gate_puts_the_model_in_front_of_cosine_through_the_service_client`](../../tests/test_api.py): the wiring in `build_gate`.
+- [`test_a_partly_judged_refusal_reaches_the_client_as_degraded`](../../tests/test_api.py) and [`test_a_gate_that_cannot_reach_its_model_is_a_bad_gateway_not_a_crash`](../../tests/test_api.py): `degraded` reaches the HTTP response, and a `GateError` is a 502.
+- [`test_each_gate_is_built_as_named`](../../tests/test_api.py): the wiring in `build_gate`.
 - [`test_a_period_rejection_is_out_of_period_whatever_the_relevance_gate_thought`](../../tests/test_gate_composition.py) and [`test_a_question_in_a_reported_year_is_never_declined`](../../tests/test_period.py): the guard in front of the relevance gate.
-- Not yet enforced: a test that `degraded` reaches the HTTP response.
