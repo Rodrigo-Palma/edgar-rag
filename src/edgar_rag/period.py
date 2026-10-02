@@ -25,8 +25,9 @@ YEARS_REPORTED = 3
 """Fiscal years a 10-K reports: its own and the two before it, as the income
 statement and the cash flow statement show them."""
 
-# "2024", "fiscal 2024", "in 2019": a four-digit year standing on its own.
-_FOUR_DIGIT_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+# "2024", "fiscal 2024", "in 2019": a four-digit year standing on its own,
+# and not the start of a decimal or a version such as 2019.5 or 2024.10.
+_FOUR_DIGIT_YEAR = re.compile(r"\b(?:19|20)\d{2}(?=[\s?,;:)]|$)")
 # "FY2024", "FY 2024", "FY24", "fy'24": the abbreviation, with two or four digits.
 _FISCAL_ABBREVIATION = re.compile(r"\bFY ?['’]?(\d{4}|\d{2})\b", re.IGNORECASE)
 _CENTURY = 100
