@@ -118,6 +118,14 @@ def test_a_corrupt_tape_row_is_refused_with_its_line(tmp_path):
         Tape.open(tmp_path)
 
 
+def test_a_git_lfs_pointer_in_place_of_a_tape_file_says_to_pull_it(tmp_path):
+    pointer = "version https://git-lfs.github.com/spec/v1\noid sha256:ab\nsize 4194304\n"
+    (tmp_path / f"{EMBED}.jsonl").write_text(pointer)
+
+    with pytest.raises(ValueError, match=r"embed.jsonl is a Git LFS pointer.*git lfs pull"):
+        Tape.open(tmp_path)
+
+
 def _brier(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"answers": [{"probabilities": [0.2, 0.8]}]})
 
