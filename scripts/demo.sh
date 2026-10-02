@@ -6,7 +6,8 @@ set -euo pipefail
 
 port="${EDGAR_RAG_DEMO_PORT:-8077}"
 log="$(mktemp)"
-trap 'kill "${pid:-}" 2>/dev/null || true; rm -f "$log"' EXIT
+# Stop the server and wait for it to free the port, keeping the script's status.
+trap 'status=$?; kill "${pid:-}" 2>/dev/null; wait "${pid:-}" 2>/dev/null || true; rm -f "$log"; exit "$status"' EXIT
 
 EDGAR_RAG_MODE=replay \
 EDGAR_RAG_INDEX_DIR=eval/ci/index \
