@@ -355,6 +355,26 @@ passes when `/health` reports an index loaded; Ollama being down shows in
 alone and prints its size: 249 MB unpacked, 78 MB compressed. There is no
 hosted instance: the measured configuration needs a 32B model on a GPU.
 
+## The evaluation gate in CI
+
+Every pull request replays the dev split (8 filings, 1,344 golden cases, 200
+of them end to end) from the tape and judges each case against
+`eval/ci/baseline.json`, without a model: `make eval-ci`, about a second.
+Replay is deterministic, so a case that changed did so because the code did.
+Each case is right or wrong under each arm the CI can run (no gate, cosine,
+period guard, guard and cosine, at the service's default threshold), and the
+job fails when any tier, class and arm loses 3 or more cases net. A net gain
+as large fails too until `make eval-ci-baseline` writes it into the baseline
+in the same pull request, so a later regression cannot hide behind it. A
+prompt or passage the tape never recorded fails the replay itself;
+`make eval-ci-record` rebuilds the index, records a fresh tape with
+`qwen3:8b` and rewrites the baseline, in one change.
+
+The tier is small: end to end, a rate is known only to within about 10
+percentage points for the 100 answerable cases and 18 for each kind of
+unanswerable one. Passing means none of these cases got worse, not that
+nothing did.
+
 ## Operating it
 
 The service reads the index once at startup and shares one HTTP client across
@@ -390,7 +410,7 @@ default. Both are needed before it listens anywhere else.
 |---|---|
 | `src/edgar_rag/cli.py` | the `edgar-rag` command: `ingest`, `serve`, `eval` |
 | `src/edgar_rag/service/` | the service: composition at startup, limits, the JSON contract, error mapping |
-| `src/edgar_rag/eval/` | evaluation statistics: metrics, cluster bootstrap, numeric matching, power |
+| `src/edgar_rag/eval/` | the evaluation: golden set, harness, tapes and replay, the CI gate, statistics |
 | `src/edgar_rag/ingest.py` | a filing into a shard of the index: parse, chunk, embed in batches |
 | `src/edgar_rag/answer.py` | the `Answerer`: retrieve, gate, generate, check the citations, or abstain |
 | `src/edgar_rag/config.py` | settings for the service, the ingestion and the evaluation |
@@ -416,12 +436,9 @@ at all.
 
 ## Not there yet
 
-An eval gate in CI over a golden set built from XBRL `companyfacts` (the SEC
-publishes the numbers, so the labels can be generated rather than hand-written),
-token counts in the request log, a semantic cache, a drift monitor, and a
-deployed instance. Those are the point of the project. This is the vertical slice they
-attach to, and it is honest about which of its numbers are measurements and
-which are anecdotes.
+A semantic cache, a drift monitor, and a deployed instance. This is the
+vertical slice they attach to, and it is honest about which of its numbers are
+measurements and which are anecdotes.
 
 ## Licence
 
