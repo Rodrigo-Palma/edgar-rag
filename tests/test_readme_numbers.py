@@ -30,6 +30,12 @@ def test_the_readme_states_no_number_the_reports_do_not_print():
     assert check.main(["check_readme_numbers.py"]) == 0
 
 
+def test_the_docs_pages_state_no_number_the_reports_do_not_print():
+    pages = [ROOT / "docs" / "architecture.md", ROOT / "docs" / "operations.md"]
+
+    assert check.main(["check_readme_numbers.py", *map(str, pages)]) == 0
+
+
 def test_numbers_copied_from_the_report_pass():
     readme = "A: 13/300 = 4.3% [2.5%, 7.3%], 13.21 s, 6192 cases, 0.6 p.p.; -0.101."
 

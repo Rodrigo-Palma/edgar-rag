@@ -269,29 +269,10 @@ period guard, cosine and brier together):
 | gate | 6192 | 0.213 | 0.249 |
 | generate | 520 | 12.913 | 19.412 |
 
-Arm A, the default, by outcome (means per question):
-
-| outcome | n | prompt tokens | completion tokens | generator s |
-|---|---|---|---|---|
-| answered | 101 | 1648.8 | 25.1 | 15.10 |
-| declined after generating | 379 | 1475.6 | 13.3 | 12.71 |
-
 A decline costs nearly as much as an answer when the model is the one that
 declines; a gate decline costs the embedding, the search and the gate.
-
-The service reads the index once at startup and shares one HTTP client. At
-most `EDGAR_RAG_MAX_CONCURRENT_GENERATIONS` (default `2`) generations run at
-once; a request that needs another gets `503` with `Retry-After` at once
-instead of queueing, and a question the gate declines is answered whatever the
-load. A request past `EDGAR_RAG_REQUEST_TIMEOUT_SECONDS` (default `90`) gets
-`504`. Every request writes one line of JSON to stderr: status, total and
-per-stage seconds, `reason`, `degraded`, every gate score, and the tokens of
-the generation. The question itself is not logged. `/health` reports the
-indexed filings, a fingerprint of the index and whether Ollama answers.
-
-There is no authentication and no rate limit, so the service binds to
-`127.0.0.1` by default and logs a warning when `EDGAR_RAG_HOST` is not a
-loopback address.
+Limits, the log line, `/health`, tokens per outcome and the container:
+[docs/operations.md](docs/operations.md).
 
 ## What failed and why
 
@@ -352,14 +333,6 @@ make eval-ci                     # replays the dev split against the CI baseline
 make demo                        # one cited answer, one decline
 ```
 
-`make eval` reads `eval/runs/v1/cases.jsonl`, which is plain git. The run's
-tape (every embedding, generation and brier reply it recorded) is in Git LFS
-and excluded from every download by `.lfsconfig`; to fetch it:
-
-```bash
-git lfs pull --include="eval/runs/v1/tape/**" --exclude=""
-```
-
 With a model (Ollama on the host):
 
 ```bash
@@ -370,12 +343,6 @@ make serve                       # 127.0.0.1:8000, default gate none
 EDGAR_RAG_GATE=period+cosine make serve   # the latency option
 make cosine-threshold            # prints the default cosine threshold and how it was fitted
 ```
-
-In a container, with Ollama on the host where the GPU is (a container on a Mac
-cannot reach Metal): `make up` builds the image, mounts `data/index` read-only
-and waits for `/health`; `make down` stops it. The image holds the locked
-runtime dependencies and the package, runs as an unprivileged user, and is
-published on the host's `127.0.0.1` only.
 
 Every pull request runs `make eval-ci`: the dev split replayed from the tape,
 each case judged right or wrong under each arm against `eval/ci/baseline.json`,
@@ -392,31 +359,8 @@ than the one measured. The replay demo and the container stand in for it
 
 ## Layout
 
-| path | what lives there |
-|---|---|
-| `src/edgar_rag/cli.py` | the `edgar-rag` command: `ingest`, `serve`, `eval` |
-| `src/edgar_rag/service/` | the service: composition at startup, limits, the JSON contract, error mapping |
-| `src/edgar_rag/eval/` | the evaluation: golden set, harness, tapes and replay, the CI gate, statistics |
-| `src/edgar_rag/ingest.py` | a filing into a shard of the index: parse, chunk, embed in batches |
-| `src/edgar_rag/answer.py` | the `Answerer`: retrieve, gate, generate, check the citations, or abstain |
-| `src/edgar_rag/config.py` | settings for the service, the ingestion and the evaluation |
-| `src/edgar_rag/prompt.py` | the generation prompt and the untrusted-text guard |
-| `src/edgar_rag/citations.py` | which passages an answer cites, whether each sentence is backed by them, the quote shown |
-| `src/edgar_rag/chunking.py` | sections into passages, cut on sentence boundaries |
-| `src/edgar_rag/gate.py` | the relevance gates (cosine, none) and `AllOf`, which composes gates |
-| `src/edgar_rag/period.py` | the period guard: the years a question names against the years the filing reports |
-| `src/edgar_rag/index.py` | the index: one shard per filing, the manifest and its checks, scoped cosine search |
-| `src/edgar_rag/models.py` | Ollama embedding and generation, lower-cased and pinned |
-| `src/edgar_rag/edgar/` | EDGAR client, XBRL facts and the 10-K parser |
-| `src/edgar_rag/amounts.py` | amounts as a filing writes them, shared by the evaluation and the citation check |
-| `src/edgar_rag/telemetry.py` | per-stage timing and the one JSON line per request |
-| `src/edgar_rag/domain.py` | the values the pipeline passes around, and the ports it calls |
-| `eval/` | roster, pinned filings, snapshots, golden set, CI index, tape and baseline, frozen runs |
-| `docs/eval/` | protocol, report, addendum, deviations |
-
-The table runs top to bottom in import order: a module imports only from rows
-below its own layer, and the answering core reaches the models, the gate and
-the index only through the ports in `domain.py`. `make imports` enforces both.
+Modules in import order, and a request participant by participant:
+[docs/architecture.md](docs/architecture.md).
 
 ## Architecture decisions
 

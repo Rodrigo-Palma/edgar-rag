@@ -32,8 +32,10 @@ imports: ## Layer contracts between modules (import-linter)
 test: ## Tests with branch coverage, failing under 85%
 	$(UV_RUN) pytest --cov=edgar_rag --cov-report=term --cov-fail-under=85
 
-readme: ## Every number in README.md is copied from docs/eval/ (no model, no network)
-	$(UV_RUN) python scripts/check_readme_numbers.py
+README_PAGES := README.md docs/architecture.md docs/operations.md
+
+readme: ## Every number in the README and its docs pages is copied from docs/eval/ (no model, no network)
+	$(UV_RUN) python scripts/check_readme_numbers.py $(README_PAGES)
 
 audit: ## Known vulnerabilities in the locked dependencies (needs network)
 	@tmp=$$(mktemp) && trap 'rm -f "$$tmp"' EXIT && \
