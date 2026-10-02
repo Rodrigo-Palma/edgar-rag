@@ -4,9 +4,18 @@
 # default none, so the second question shows a decline before generation.
 # The index is eval/ci/index and the replies come from the qwen3:8b tape in
 # eval/ci/tape; both need `git lfs pull` in the clone.
+#
+# EDGAR_RAG_DEMO_VIEW=brief prints, per question, the outcome, the citation
+# and the stages the request's log line timed, instead of the full JSON; it is
+# the view docs/media/demo.tape records. The checks at the end run in both.
 set -euo pipefail
 
 port="${EDGAR_RAG_DEMO_PORT:-8077}"
+view="${EDGAR_RAG_DEMO_VIEW:-full}"
+case "$view" in
+    full | brief) ;;
+    *) echo "EDGAR_RAG_DEMO_VIEW is full or brief, not '$view'" >&2; exit 2 ;;
+esac
 log="$(mktemp)"
 # Stop the server and wait for it to free the port, keeping the script's status.
 trap 'status=$?; kill "${pid:-}" 2>/dev/null; wait "${pid:-}" 2>/dev/null || true; rm -f "$log"; exit "$status"' EXIT
@@ -26,15 +35,66 @@ done
 curl --silent --fail "localhost:$port/health" >/dev/null || { cat "$log" >&2; exit 1; }
 
 ask() {
-    echo "\$ curl -s localhost:$port/ask -d '$1'" >&2
+    if [ "$view" = full ]; then echo "\$ curl -s localhost:$port/ask -d '$1'" >&2; fi
     curl --silent --show-error --fail-with-body "localhost:$port/ask" \
         -H 'content-type: application/json' -d "$1"
 }
 
 answer=$(ask '{"cik": 320193, "fiscal_year": 2025, "question": "How much revenue did Apple report for fiscal year 2025?"}')
-echo "$answer" | python3 -m json.tool
+if [ "$view" = full ]; then echo "$answer" | python3 -m json.tool; fi
 decline=$(ask '{"cik": 320193, "fiscal_year": 2025, "question": "What cash dividends did Apple pay to shareholders in fiscal 2020?"}')
-echo "$decline" | python3 -m json.tool
+if [ "$view" = full ]; then echo "$decline" | python3 -m json.tool; fi
+
+if [ "$view" = brief ]; then
+    python3 - "$port" "$log" "$answer" "$decline" <<'BRIEF'
+import json
+import sys
+import textwrap
+import time
+from pathlib import Path
+
+port, log, *bodies = sys.argv[1:]
+WIDTH = 104
+
+
+def logged_requests() -> list[dict]:
+    """The /ask lines of the service log, waiting briefly for the last one."""
+    for _ in range(20):
+        lines = Path(log).read_text("utf-8").splitlines()
+        asks = [json.loads(line) for line in lines if line.startswith('{"method":"POST","path":"/ask"')]
+        if len(asks) >= 2:
+            return asks
+        time.sleep(0.1)
+    return asks
+
+
+def wrapped(text: str, indent: str) -> str:
+    return textwrap.fill(" ".join(text.split()), WIDTH, initial_indent=indent, subsequent_indent=indent)
+
+
+def show(response: dict, logged: dict | None) -> None:
+    scope = response["source"]
+    print(f"$ curl -s localhost:{port}/ask -d '{{\"cik\": {scope['cik']}, \"fiscal_year\": {scope['fiscal_year']}, ...}}'")
+    print(wrapped(f"question: {response['question']}", "  "))
+    if response["abstained"]:
+        print(f"abstained   {response['reason']}")
+        print(wrapped(response["detail"], "  "))
+    else:
+        print(f"answered    {response['text']}")
+        for citation in response["citations"]:
+            print(f"  [{citation['marker']}] {citation['item']}, {citation['title']}, score {citation['score']}")
+            quote = textwrap.shorten(citation["quote"], 2 * WIDTH - 20, placeholder=" ...")
+            print(wrapped(f'"{quote}"', "      "))
+    if logged is not None:
+        print(f"  stages: {', '.join(logged['stages'])}")
+    print()
+
+
+asks = logged_requests()
+for position, body in enumerate(bodies):
+    show(json.loads(body), asks[position] if position < len(asks) else None)
+BRIEF
+fi
 
 # The demo shows what it promises, or fails: a guard that never declines, or
 # a relevance gate that admits the wrong side, must not exit 0.
