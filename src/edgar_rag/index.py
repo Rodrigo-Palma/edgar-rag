@@ -48,6 +48,7 @@ from edgar_rag.domain import (
     Scope,
     ScoredChunk,
 )
+from edgar_rag.lfs import is_pointer, pointer_message
 
 FORMAT_VERSION = 2
 MANIFEST_FILE = "manifest.json"
@@ -397,6 +398,8 @@ def _read_checked(path: Path, sha256: str) -> bytes:
         content = path.read_bytes()
     except OSError as error:
         raise IndexFormatError(f"{path} is listed in the manifest but cannot be read") from error
+    if is_pointer(content):
+        raise IndexFormatError(pointer_message(path))
     if hashlib.sha256(content).hexdigest() != sha256:
         raise IndexFormatError(f"{path} does not match its SHA-256 in the manifest")
     return content
