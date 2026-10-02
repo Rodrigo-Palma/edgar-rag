@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # `make demo`: the service in replay mode, asked the two questions the README
-# shows, with no model running. The index is eval/ci/index and the replies come
+# shows, with no model running. It runs the period+cosine gate, not the
+# default none, so the second question shows a decline before generation. The index is eval/ci/index and the replies come
 # from the qwen3:8b tape in eval/ci/tape; both need `git lfs pull` in the clone.
 set -euo pipefail
 
@@ -10,6 +11,7 @@ log="$(mktemp)"
 trap 'status=$?; kill "${pid:-}" 2>/dev/null; wait "${pid:-}" 2>/dev/null || true; rm -f "$log"; exit "$status"' EXIT
 
 EDGAR_RAG_MODE=replay \
+EDGAR_RAG_GATE=period+cosine \
 EDGAR_RAG_INDEX_DIR=eval/ci/index \
 EDGAR_RAG_PORT="$port" \
     uv run --frozen edgar-rag serve >"$log" 2>&1 &

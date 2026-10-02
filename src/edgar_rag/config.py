@@ -23,6 +23,11 @@ period guard in front of one."""
 ServiceMode = Literal["live", "replay"]
 """Where the models' replies come from: Ollama, or a tape recorded from it."""
 
+COSINE_R90 = 0.7329
+"""The cosine score that admits 90% of the answerable golden questions of all
+24 companies, fitted after the headline run; ``make cosine-threshold`` prints
+it (ADR-0014)."""
+
 CI_TAPE = Path("eval/ci/tape")
 GOLDEN_SET = Path("eval/golden/v1.jsonl")
 
@@ -47,10 +52,14 @@ class ServiceSettings(_SharedSettings):
     limit, which is acceptable only there.
 
     ``gate`` picks the checks that run before the model is asked. The default,
-    ``period+cosine``, declines a question about a year the filing does not
-    report and then one whose closest passage is not close enough; it needs
-    nothing but the index, so anyone can run it. ``none`` asks the model
-    every time and leaves the refusal to it.
+    ``none``, asks the model every time and leaves the refusal to it: on the
+    headline run the model alone answered 13 of 300 unanswerable questions,
+    too few for a gate to pay for itself in false answers (ADR-0014).
+    ``period+cosine`` declines a question about a year the filing does not
+    report and then one whose closest passage scores under
+    ``min_retrieval_score``. It needs nothing but the index and saves
+    generator time (6.59 s per question against 13.21 s) at a recall cost of
+    0.6 p.p.; ``cosine`` is the relevance check alone.
 
     ``mode=replay`` answers without a model: the question embeddings and the
     generations come from the tape at ``replay_tape``, recorded by the
@@ -60,11 +69,11 @@ class ServiceSettings(_SharedSettings):
     """
 
     generation_model: str = "qwen3:32b"
-    gate: GateChoice = "period+cosine"
+    gate: GateChoice = "none"
     mode: ServiceMode = "live"
     replay_tape: Path = CI_TAPE
     replay_questions: Path = GOLDEN_SET
-    min_retrieval_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    min_retrieval_score: float = Field(default=COSINE_R90, ge=0.0, le=1.0)
 
     # A generation holds the GPU for about twenty seconds, so a third one at
     # the same time only makes all of them slower. Past this many, /ask

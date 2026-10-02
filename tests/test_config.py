@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from edgar_rag.config import IngestSettings, ServiceSettings
+from edgar_rag.config import COSINE_R90, IngestSettings, ServiceSettings
 
 
 @pytest.fixture(autouse=True)
@@ -41,9 +41,14 @@ def test_every_variable_carries_the_project_prefix(monkeypatch):
     assert settings.gate == "cosine"
 
 
-def test_the_default_gate_is_the_period_guard_in_front_of_cosine():
-    """The default needs nothing but the index, so anyone can run it."""
-    assert ServiceSettings().gate == "period+cosine"
+def test_the_default_gate_is_none():
+    """ADR-0014: FAR(A) was under the 5 p.p. margin, so no gate is the default."""
+    assert ServiceSettings().gate == "none"
+
+
+def test_the_default_cosine_threshold_is_the_r90_fitted_after_the_headline_run():
+    """``make cosine-threshold`` prints the value; ADR-0014 records it."""
+    assert ServiceSettings().min_retrieval_score == COSINE_R90 == 0.7329
 
 
 @pytest.mark.parametrize(

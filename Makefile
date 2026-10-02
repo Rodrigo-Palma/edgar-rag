@@ -1,11 +1,11 @@
 # Local gate. `make check` is what CI runs; run it before every commit.
 
 UV_RUN := uv run --frozen
-SRC := src tests
+SRC := src tests scripts
 
 .DEFAULT_GOAL := help
 .PHONY: help sync check lint format typecheck imports test audit serve demo image up down \
-	ingest eval eval-full eval-ci eval-ci-baseline eval-ci-record
+	ingest eval eval-full eval-ci eval-ci-baseline eval-ci-record cosine-threshold
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -91,6 +91,10 @@ eval-ci-record: ## Rebuild the CI index, record a fresh qwen3:8b tape, rewrite t
 		--index-dir $(CI_INDEX) --out $(CI_RUN)-record --tape $(CI_RUN)-record/tape
 	rm -rf $(CI_TAPE) && mv $(CI_RUN)-record/tape $(CI_TAPE)
 	$(MAKE) eval-ci-baseline
+
+cosine-threshold: ## Print the default cosine threshold, R90 over every golden company (no model)
+	$(REPLAY_CI)
+	$(UV_RUN) python scripts/cosine_threshold.py $(HEADLINE_RUN) $(CI_RUN)
 
 eval-full: ## The pre-registered round on the eval split, into eval/runs/v1 (needs Ollama, hours)
 	$(UV_RUN) edgar-rag eval run --split eval --narratives --repeat 30 \

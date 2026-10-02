@@ -93,7 +93,11 @@ def test_the_demo_asks_the_two_questions_the_readme_shows():
 
 
 def test_the_committed_tape_answers_one_demo_question_and_declines_the_other():
-    """What `make demo` shows, from the committed CI index and qwen3:8b tape."""
+    """What `make demo` shows, from the committed CI index and qwen3:8b tape.
+
+    The demo runs period+cosine, at the default cosine threshold, so the
+    decline happens before generation.
+    """
     parts = open_replay(
         REPO / "eval" / "ci" / "index",
         REPO / "eval" / "ci" / "tape",
@@ -101,7 +105,9 @@ def test_the_committed_tape_answers_one_demo_question_and_declines_the_other():
         SPEC,
     )
     replay = Replay(parts.index, parts.embedder, parts.generator, parts.questions)
-    with TestClient(create_app(ServiceSettings(mode="replay"), replay=replay)) as client:
+    with TestClient(
+        create_app(ServiceSettings(mode="replay", gate="period+cosine"), replay=replay)
+    ) as client:
         answer, decline = (client.post("/ask", json=body).json() for body in _demo_bodies())
 
     assert answer["replayed"] is True

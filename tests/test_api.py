@@ -345,10 +345,9 @@ def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
     assert str(tmp_path) not in response.text
 
 
-def test_the_default_gate_puts_the_period_guard_in_front_of_cosine():
-    settings = ServiceSettings(min_retrieval_score=0.4)
-
-    assert build_gate(settings) == AllOf(PeriodGuard(), CosineGate(0.4))
+def test_the_default_gate_leaves_the_refusal_to_the_model():
+    """ADR-0014: on the headline run no gate paid for itself in false answers."""
+    assert build_gate(ServiceSettings()) == NoGate()
 
 
 @pytest.mark.parametrize(
@@ -363,10 +362,10 @@ def test_each_gate_is_built_as_named(choice, expected):
     assert build_gate(ServiceSettings(gate=choice, min_retrieval_score=0.4)) == expected
 
 
-def test_a_question_about_another_year_is_declined_out_of_period_by_default(index):
-    """End to end: the default service never asks the model about fiscal 2019."""
+def test_a_question_about_another_year_is_declined_out_of_period_behind_the_guard(index):
+    """End to end: with period+cosine the service never asks the model about fiscal 2019."""
     generator = FakeGenerator(CITED_REPLY)
-    app = create_app(ServiceSettings(), _default_gate_answerer(index, generator))
+    app = create_app(ServiceSettings(), _period_cosine_answerer(index, generator))
 
     with TestClient(app) as client:
         body = client.post("/ask", json={"cik": CIK, "question": IN_2019}).json()
@@ -378,9 +377,9 @@ def test_a_question_about_another_year_is_declined_out_of_period_by_default(inde
     assert generator.prompts == []
 
 
-def test_a_question_about_a_reported_year_is_answered_by_default(index):
+def test_a_question_about_a_reported_year_is_answered_behind_the_guard(index):
     generator = FakeGenerator(CITED_REPLY)
-    app = create_app(ServiceSettings(), _default_gate_answerer(index, generator))
+    app = create_app(ServiceSettings(), _period_cosine_answerer(index, generator))
 
     with TestClient(app) as client:
         body = client.post("/ask", json={"cik": CIK, "question": IN_2023}).json()
@@ -393,9 +392,9 @@ IN_2019 = "what did the company design in fiscal 2019?"
 IN_2023 = "what did the company design in fiscal 2023?"
 
 
-def _default_gate_answerer(index, generator):
-    """The gate the default settings build, over a fake embedder and generator."""
-    gate = build_gate(ServiceSettings())
+def _period_cosine_answerer(index, generator):
+    """The period+cosine gate at the default threshold, over a fake embedder and generator."""
+    gate = build_gate(ServiceSettings(gate="period+cosine"))
     embedder = FakeEmbedder({IN_2019: [1.0, 0.0], IN_2023: [1.0, 0.0]})
     return fake_answerer(index, embedder=embedder, generator=generator, gate=gate)
 
