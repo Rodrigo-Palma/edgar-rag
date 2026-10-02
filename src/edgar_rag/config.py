@@ -20,6 +20,12 @@ GateChoice = Literal["none", "cosine", "period+cosine", "brier", "period+brier"]
 """Which checks run before the model is asked: none, a relevance gate, or the
 period guard in front of one."""
 
+ServiceMode = Literal["live", "replay"]
+"""Where the models' replies come from: Ollama, or a tape recorded from it."""
+
+CI_TAPE = Path("eval/ci/tape")
+GOLDEN_SET = Path("eval/golden/v1.jsonl")
+
 
 class _SharedSettings(BaseSettings):
     """Where the index lives and which model embeds: all three must agree on it."""
@@ -50,10 +56,20 @@ class ServiceSettings(_SharedSettings):
 
     A ``brier_url`` is required by the brier gates and refused by the others,
     so a URL that would be silently ignored stops the service instead.
+
+    ``mode=replay`` answers without a model: the question embeddings and the
+    generations come from the tape at ``replay_tape``, recorded by the
+    evaluation over the golden set at ``replay_questions``, and only those
+    questions can be asked. The index, the search, the gate and the citation
+    check run as they do live. Brier is not on the CI tape, so replay refuses
+    the brier gates.
     """
 
     generation_model: str = "qwen3:32b"
     gate: GateChoice = "period+cosine"
+    mode: ServiceMode = "live"
+    replay_tape: Path = CI_TAPE
+    replay_questions: Path = GOLDEN_SET
     min_retrieval_score: float = Field(default=0.55, ge=0.0, le=1.0)
     brier_url: HttpUrl | None = None
     brier_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
@@ -77,6 +93,8 @@ class ServiceSettings(_SharedSettings):
                 f"EDGAR_RAG_BRIER_URL is set but EDGAR_RAG_GATE={self.gate} does not use it; "
                 "choose brier or period+brier, or unset the URL"
             )
+        if uses_brier and self.mode == "replay":
+            raise ValueError(f"EDGAR_RAG_MODE=replay has no brier on its tape: {self.gate}")
         return self
 
 

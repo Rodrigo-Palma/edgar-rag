@@ -17,17 +17,19 @@ import httpx
 from pydantic import ValidationError
 
 from edgar_rag.config import IngestSettings, ServiceSettings, SnapshotIngestSettings
+from edgar_rag.domain import EmbedderSpec
 from edgar_rag.edgar.client import EdgarClient, EdgarError, Filing
 from edgar_rag.edgar.fetch import REQUEST_TIMEOUT_SECONDS as EDGAR_TIMEOUT_SECONDS
 from edgar_rag.eval import build, commands, power
 from edgar_rag.eval.build import EvalPaths
 from edgar_rag.eval.corpus import index_pinned, pinned_filings
+from edgar_rag.eval.replay_serving import open_replay
 from edgar_rag.eval.snapshot import read_lock
 from edgar_rag.index import IndexFormatError, write_shard
 from edgar_rag.ingest import index_filing
+from edgar_rag.models import LOWERCASE_INPUT, ModelError, OllamaEmbedder
 from edgar_rag.models import REQUEST_TIMEOUT_SECONDS as MODEL_TIMEOUT_SECONDS
-from edgar_rag.models import ModelError, OllamaEmbedder
-from edgar_rag.service.app import serve
+from edgar_rag.service.app import Replay, serve
 
 FAILED = 1
 DESCRIPTION = "Question answering over SEC filings that cites its sources and abstains."
@@ -91,7 +93,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     ingest.set_defaults(command=_ingest)
 
-    serving = commands.add_parser("serve", help="answer questions over HTTP from the index")
+    serving = commands.add_parser(
+        "serve",
+        help="answer questions over HTTP from the index (EDGAR_RAG_MODE=replay: from the tape)",
+    )
     serving.set_defaults(command=_serve)
 
     evaluation = commands.add_parser("eval", help="evaluation tools")
@@ -205,7 +210,30 @@ def _serve(args: argparse.Namespace, transport: httpx.BaseTransport | None) -> i
         settings = ServiceSettings()
     except ValidationError as error:
         return _fail(f"configuration: {error}")
-    serve(settings)
+    if settings.mode == "live":
+        serve(settings)
+        return 0
+    # Replay is checked before the server starts, so a missing tape or an
+    # index checked out as Git LFS pointers is one line, not a traceback.
+    spec = EmbedderSpec(model=settings.embedding_model, lowercase=LOWERCASE_INPUT)
+    try:
+        parts = open_replay(
+            settings.index_dir, settings.replay_tape, settings.replay_questions, spec
+        )
+    except (IndexFormatError, OSError, ValueError) as error:
+        return _fail(f"replay: {error}")
+    print(
+        f"replaying {parts.generation.name} from {settings.replay_tape} over "
+        f"{len(parts.index.filings)} filings in {settings.index_dir}",
+        file=sys.stderr,
+    )
+    replay = Replay(
+        index=parts.index,
+        embedder=parts.embedder,
+        generator=parts.generator,
+        questions=parts.questions,
+    )
+    serve(settings, replay=replay)
     return 0
 
 

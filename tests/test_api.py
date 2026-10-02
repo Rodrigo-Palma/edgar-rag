@@ -509,6 +509,7 @@ def test_a_healthy_answer_carries_every_field_of_the_contract(client):
         "gate_score",
         "degraded",
         "source",
+        "replayed",
     }
     assert body["degraded"] is False
     assert set(body["citations"][0]) == {"marker", "item", "title", "quote", "score"}

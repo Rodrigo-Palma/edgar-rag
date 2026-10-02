@@ -87,13 +87,16 @@ class AskResponse(BaseModel):
     source: SourceResponse | None = Field(
         description="The filing the passages come from; null when no indexed filing matches."
     )
+    replayed: bool = Field(
+        description="The models' replies came from a recorded tape (EDGAR_RAG_MODE=replay)."
+    )
 
     @classmethod
-    def of(cls, answer: Answer) -> "AskResponse":
+    def of(cls, answer: Answer, *, replayed: bool = False) -> "AskResponse":
         returned = {
             field.name: getattr(answer, field.name)
             for field in fields(answer)
             if field.name not in NOT_RETURNED
         }
         # from_attributes reads the Citation and IndexedFiling dataclasses as models
-        return cls.model_validate(returned, from_attributes=True)
+        return cls.model_validate({**returned, "replayed": replayed}, from_attributes=True)

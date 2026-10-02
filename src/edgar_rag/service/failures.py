@@ -9,6 +9,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from edgar_rag.domain import NotRecorded
 from edgar_rag.gate import GateError
 from edgar_rag.models import ModelError
 
@@ -72,6 +73,17 @@ def report_timeout(request: Request, error: Exception) -> JSONResponse:
     return JSONResponse(status_code=504, content={"detail": "the answer took too long"})
 
 
+def report_not_recorded(request: Request, error: Exception) -> JSONResponse:
+    logger.warning("not on the tape, %s: %s", request.url.path, error)
+    return JSONResponse(
+        status_code=404,
+        content={
+            "detail": "not recorded: in replay mode the service answers only the golden "
+            "set's questions recorded on its tape, as written there, with the default top_k"
+        },
+    )
+
+
 def report_failures(app: FastAPI) -> None:
     app.add_exception_handler(ValueError, reject_invalid_input)
     app.add_exception_handler(ModelError, report_model_failure)
@@ -79,3 +91,4 @@ def report_failures(app: FastAPI) -> None:
     app.add_exception_handler(IndexUnavailable, report_missing_index)
     app.add_exception_handler(ServiceBusy, report_busy)
     app.add_exception_handler(RequestTimedOut, report_timeout)
+    app.add_exception_handler(NotRecorded, report_not_recorded)

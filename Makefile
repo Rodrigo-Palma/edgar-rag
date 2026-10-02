@@ -4,10 +4,10 @@ UV_RUN := uv run --frozen
 SRC := src tests
 
 .DEFAULT_GOAL := help
-.PHONY: help sync check lint format typecheck imports test audit serve image up down
+.PHONY: help sync check lint format typecheck imports test audit serve demo image up down
 
 help: ## List the targets
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
 
 sync: ## Install the locked dependencies, dev tools included
 	uv sync --frozen
@@ -38,6 +38,9 @@ audit: ## Known vulnerabilities in the locked dependencies (needs network)
 
 serve: ## Serve answers from the index on 127.0.0.1:8000 (needs Ollama)
 	$(UV_RUN) edgar-rag serve
+
+demo: ## Replay two recorded questions through the service: one answer, one decline (no model)
+	./scripts/demo.sh
 
 IMAGE := edgar-rag:local
 
