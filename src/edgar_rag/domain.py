@@ -7,7 +7,7 @@ the ports, and only the entry points choose which adapter is wired in.
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from types import MappingProxyType
@@ -107,22 +107,6 @@ class ScoredChunk:
     score: float
 
 
-@dataclass(frozen=True, slots=True)
-class GateDecision:
-    """Whether to answer, how sure the gate is, and why.
-
-    ``reason`` is written for a person reading a log, because an abstention with
-    no reason is indistinguishable from a bug. ``degraded`` is a field rather
-    than prose in the reason so a caller can act on it: a gate that quietly
-    swapped itself for a weaker one is the failure most worth surfacing.
-    """
-
-    admitted: bool
-    confidence: float
-    reason: str
-    degraded: bool = False
-
-
 class AbstentionReason(StrEnum):
     """Why an answer was withheld. The values are part of the HTTP contract.
 
@@ -133,9 +117,9 @@ class AbstentionReason(StrEnum):
     and the prose lives in ``Answer.detail``.
 
     ``out_of_scope`` means no indexed filing matches the requested company
-    and fiscal year. ``out_of_period`` belongs to the period guard, which is
-    not in the pipeline yet; it is published now so adding the guard does not
-    change the contract.
+    and fiscal year. ``out_of_period`` means the question names a year the
+    filing does not report on, which the period guard catches before any
+    relevance score is trusted.
     """
 
     GATE_REJECTED = "gate_rejected"
@@ -144,6 +128,35 @@ class AbstentionReason(StrEnum):
     NO_VALID_CITATION = "no_valid_citation"
     UNSUPPORTED_CLAIM = "unsupported_claim"
     OUT_OF_SCOPE = "out_of_scope"
+
+
+@dataclass(frozen=True, slots=True)
+class GateDecision:
+    """Whether to answer, how sure the gate is, and why.
+
+    ``reason`` is written for a person reading a log, because an abstention with
+    no reason is indistinguishable from a bug. ``degraded`` is a field rather
+    than prose in the reason so a caller can act on it: a gate that quietly
+    swapped itself for a weaker one is the failure most worth surfacing.
+
+    ``rejection`` is the abstention reason the answer carries when the gate
+    does not admit: a relevance gate leaves it at ``gate_rejected``, the
+    period guard says ``out_of_period``. ``scores`` holds every score that
+    went into the decision, by gate name, including those of gates that did
+    not decide it: a threshold is chosen afterwards from scores, so each one
+    has to be there whatever the decision was.
+    """
+
+    admitted: bool
+    confidence: float
+    reason: str
+    degraded: bool = False
+    rejection: AbstentionReason = AbstentionReason.GATE_REJECTED
+    scores: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        # A copy, read-only: a gate cannot change a decision it already returned.
+        object.__setattr__(self, "scores", MappingProxyType(dict(self.scores)))
 
 
 # One sentence per reason, because a single "no passages close enough" message
@@ -211,10 +224,13 @@ class Trace:
     ``stages`` holds the seconds spent embedding, searching, gating and
     generating. ``generation`` is ``None`` exactly when the model was not
     asked, so a refusal by the model still reports the tokens it spent.
+    ``gate_scores`` is every score the gate computed, by gate name, whatever
+    it decided; empty when no gate ran.
     """
 
     stages: Mapping[str, float]
     generation: Generation | None
+    gate_scores: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,7 +271,16 @@ class Generator(Protocol):
 
 
 class RelevanceGate(Protocol):
-    def admits(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision: ...
+    """Decides, before the model is asked, whether ``filing`` can answer ``question``.
+
+    ``passages`` are the closest ones retrieved from ``filing``; a gate that
+    judges the question against the filing itself, like the period guard,
+    reads ``filing`` and may ignore them.
+    """
+
+    def admits(
+        self, question: str, passages: tuple[ScoredChunk, ...], filing: IndexedFiling
+    ) -> GateDecision: ...
 
 
 class Retriever(Protocol):

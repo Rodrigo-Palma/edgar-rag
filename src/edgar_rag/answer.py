@@ -65,7 +65,10 @@ class Answerer[Index: Retriever]:
 
         ``stages``, when given, records the time spent embedding, searching,
         gating and generating; a request the gate stopped has no generate stage,
-        and one outside the indexed scope has none at all.
+        and one outside the indexed scope has none at all. The gate sees the
+        filing the scope resolved to, so a guard can judge the question against
+        the period that filing covers, and a rejection carries the reason the
+        gate gave for it.
 
         Raises:
             ValueError: when the question is empty, ``top_k`` is below one, or
@@ -85,10 +88,10 @@ class Answerer[Index: Retriever]:
         passages = self._retrieve(question, scope, wanted, timer)
         best_score = round(passages[0].score if passages else 0.0, 4)
         with timer.measure("gate"):
-            decision = self.gate.admits(question, passages)
+            decision = self.gate.admits(question, passages, source)
         judged = _Judged(question, source, decision, best_score)
         if not decision.admitted:
-            return judged.abstain(AbstentionReason.GATE_REJECTED, _trace(timer))
+            return judged.abstain(decision.rejection, _trace(timer, decision))
         return self._generate(judged, passages, timer)
 
     def _retrieve(
@@ -107,7 +110,7 @@ class Answerer[Index: Retriever]:
         prompt = build_prompt(judged.question, passages, drawn)
         with timer.measure("generate"):
             generation = self.generator.generate(prompt)
-        trace = _trace(timer, generation)
+        trace = _trace(timer, judged.decision, generation)
         generated = generation.text
         if generated.strip() == refusal_token(drawn):
             return judged.abstain(AbstentionReason.MODEL_DECLINED, trace)
@@ -195,5 +198,14 @@ def _out_of_scope(question: str, scope: Scope, trace: Trace) -> Answer:
     )
 
 
-def _trace(timer: StageTimer, generation: Generation | None = None) -> Trace:
-    return Trace(stages=MappingProxyType(timer.seconds()), generation=generation)
+def _trace(
+    timer: StageTimer,
+    decision: GateDecision | None = None,
+    generation: Generation | None = None,
+) -> Trace:
+    scores = decision.scores if decision is not None else {}
+    return Trace(
+        stages=MappingProxyType(timer.seconds()),
+        generation=generation,
+        gate_scores=MappingProxyType(dict(scores)),
+    )

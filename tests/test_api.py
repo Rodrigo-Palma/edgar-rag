@@ -154,7 +154,7 @@ def test_a_gate_that_cannot_reach_its_model_is_a_bad_gateway_not_a_crash(index, 
     """A ``GateError`` used to escape as a 500."""
 
     class UnreachableGate:
-        def admits(self, question, passages):
+        def admits(self, question, passages, filing):
             raise GateError("http://localhost:8100 did not answer: ConnectError")
 
     with caplog.at_level(logging.ERROR, logger="edgar_rag.service"):

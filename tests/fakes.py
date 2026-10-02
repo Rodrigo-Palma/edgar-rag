@@ -94,12 +94,13 @@ class FakeGate:
     """Returns a fixed decision and records what it was asked to judge.
 
     ``calls`` lets a test assert the gate ran before generation, or did not run
-    at all.
+    at all; ``filings`` holds the filing each call was judged against.
     """
 
     def __init__(self, decision: GateDecision) -> None:
         self.decision = decision
         self.calls: list[tuple[str, tuple[ScoredChunk, ...]]] = []
+        self.filings: list[IndexedFiling] = []
 
     @classmethod
     def admitting(cls, confidence: float = 1.0) -> "FakeGate":
@@ -109,8 +110,11 @@ class FakeGate:
     def rejecting(cls, confidence: float = 0.0) -> "FakeGate":
         return cls(GateDecision(admitted=False, confidence=confidence, reason="fake: rejected"))
 
-    def admits(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision:
+    def admits(
+        self, question: str, passages: tuple[ScoredChunk, ...], filing: IndexedFiling
+    ) -> GateDecision:
         self.calls.append((question, passages))
+        self.filings.append(filing)
         return self.decision
 
 

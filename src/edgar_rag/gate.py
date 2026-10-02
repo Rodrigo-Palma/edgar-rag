@@ -14,12 +14,16 @@ from typing import Annotated
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from edgar_rag.domain import GateDecision, RelevanceGate, ScoredChunk
+from edgar_rag.domain import GateDecision, IndexedFiling, RelevanceGate, ScoredChunk
 
 REQUEST_TIMEOUT_SECONDS = 30.0
 # What a client sees when the brier service failed. The URL and the exception
 # go to the log only: the reason is returned to whoever asked the question.
 UNAVAILABLE_REASON = "relevance model unavailable"
+
+# The names each gate files its score under in ``GateDecision.scores``.
+COSINE = "cosine"
+BRIER = "brier"
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +53,23 @@ class CosineGate:
 
     min_score: float
 
-    def admits(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision:
+    def admits(
+        self, question: str, passages: tuple[ScoredChunk, ...], filing: IndexedFiling
+    ) -> GateDecision:
         best = passages[0].score if passages else 0.0
+        scores = {COSINE: round(best, 4)}
         if best < self.min_score:
             return GateDecision(
                 admitted=False,
                 confidence=round(best, 4),
                 reason=f"best passage scored {best:.3f}, below the {self.min_score} threshold",
+                scores=scores,
             )
         return GateDecision(
             admitted=True,
             confidence=round(best, 4),
             reason=f"best passage scored {best:.3f}",
+            scores=scores,
         )
 
 
@@ -81,14 +90,18 @@ class BrierGate:
     # plumbing, so two gates asking the same URL the same way are equal.
     client: httpx.Client | None = field(default=None, compare=False, repr=False)
 
-    def admits(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision:
+    def admits(
+        self, question: str, passages: tuple[ScoredChunk, ...], filing: IndexedFiling
+    ) -> GateDecision:
         """Judge the passages, falling back only if a fallback was given.
 
         Raises:
             GateError: when the service is unreachable and no fallback was set.
         """
         if not passages:
-            return GateDecision(False, 0.0, "retrieval returned nothing to judge")
+            return GateDecision(
+                False, 0.0, "retrieval returned nothing to judge", scores={BRIER: 0.0}
+            )
 
         try:
             return self._judge(question, passages)
@@ -96,12 +109,14 @@ class BrierGate:
             if self.fallback is None:
                 raise
             logger.warning("brier gate failed, using the fallback: %s", error)
-            fell_back = self.fallback.admits(question, passages)
+            fell_back = self.fallback.admits(question, passages, filing)
             return GateDecision(
                 admitted=fell_back.admitted,
                 confidence=fell_back.confidence,
                 reason=f"{fell_back.reason} (degraded: {UNAVAILABLE_REASON}, fallback used)",
                 degraded=True,
+                rejection=fell_back.rejection,
+                scores=fell_back.scores,
             )
 
     def _judge(self, question: str, passages: tuple[ScoredChunk, ...]) -> GateDecision:
@@ -139,6 +154,7 @@ class BrierGate:
                         + _unjudged_note(failed, judged + failed)
                     ),
                     degraded=failed > 0,
+                    scores={BRIER: round(confidence, 4)},
                 )
 
         if judged == 0 and last_failure is not None:
@@ -153,6 +169,7 @@ class BrierGate:
                 + _unjudged_note(failed, judged + failed)
             ),
             degraded=failed > 0,
+            scores={BRIER: round(best_confidence, 4)},
         )
 
     def confidence_for(self, question: str, passage: str) -> float:

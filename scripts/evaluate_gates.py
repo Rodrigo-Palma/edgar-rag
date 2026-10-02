@@ -10,7 +10,7 @@ import argparse
 from dataclasses import dataclass
 
 from edgar_rag.config import EvalSettings
-from edgar_rag.domain import DEFAULT_TOP_K, Scope
+from edgar_rag.domain import DEFAULT_TOP_K, IndexedFiling, Scope
 from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
 from edgar_rag.index import CorpusIndex
 from edgar_rag.models import OllamaEmbedder
@@ -77,13 +77,15 @@ class Score:
         return self.admitted_unanswerable / self.total_unanswerable
 
 
-def run(gate: RelevanceGate, name: str, index: CorpusIndex, embedder) -> Score:
+def run(
+    gate: RelevanceGate, name: str, index: CorpusIndex, filing: IndexedFiling, embedder
+) -> Score:
     admitted = {True: 0, False: 0}
     print(f"\n{name}")
     for case in CASES:
         passages = index.search(embedder.embed((case.question,)), SCOPE, top_k=DEFAULT_TOP_K)
         try:
-            decision = gate.admits(case.question, passages)
+            decision = gate.admits(case.question, passages, filing)
         except GateError as error:
             print(f"  gate unavailable: {error}")
             raise
@@ -141,12 +143,14 @@ def main() -> int:
             CosineGate(settings.min_retrieval_score),
             f"cosine >= {settings.min_retrieval_score}",
             index,
+            filing,
             embedder,
         ),
         run(
             BrierGate(arguments.brier_url, min_confidence=arguments.brier_confidence),
             f"brier >= {arguments.brier_confidence}",
             index,
+            filing,
             embedder,
         ),
     ]

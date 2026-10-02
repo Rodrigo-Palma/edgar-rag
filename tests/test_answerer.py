@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from edgar_rag.answer import Answerer
-from edgar_rag.domain import DEFAULT_TOP_K, AbstentionReason, Chunk, Scope
+from edgar_rag.domain import DEFAULT_TOP_K, AbstentionReason, Chunk, GateDecision, Scope
 from edgar_rag.gate import CosineGate
 from edgar_rag.index import CorpusIndex, build_shard
 from edgar_rag.service.schemas import AskRequest
@@ -164,3 +164,44 @@ def test_a_model_refusal_is_traced_with_the_generation_it_cost(index):
     assert answer.abstained is True
     assert answer.trace.generation is not None
     assert answer.trace.generation.completion_tokens == 1
+
+
+def test_the_gate_judges_against_the_filing_the_scope_resolved_to(index):
+    """A scope without a year resolves to the latest filing; the gate sees that one."""
+    gate = FakeGate.admitting()
+
+    Answerer(index, FakeEmbedder(TABLE), FakeGenerator("x [1]"), gate).ask(ON_TOPIC, SCOPE)
+
+    assert gate.filings == [EXAMPLE]
+
+
+def test_a_rejection_carries_the_reason_the_gate_gave(index):
+    gate = FakeGate(
+        GateDecision(
+            admitted=False,
+            confidence=0.8,
+            reason="fiscal 2019 is outside 2022 to 2024",
+            rejection=AbstentionReason.OUT_OF_PERIOD,
+        )
+    )
+    generator = FakeGenerator("x [1]")
+
+    answer = Answerer(index, FakeEmbedder(TABLE), generator, gate).ask(ON_TOPIC, SCOPE)
+
+    assert answer.reason is AbstentionReason.OUT_OF_PERIOD
+    assert "fiscal 2019 is outside 2022 to 2024" in answer.detail
+    assert generator.prompts == []
+
+
+@pytest.mark.parametrize("question", [ON_TOPIC, OFF_TOPIC], ids=["admitted", "rejected"])
+def test_the_trace_keeps_every_gate_score_whatever_the_decision(index, question):
+    answer = _answerer(index).ask(question, SCOPE, top_k=2)
+
+    assert set(answer.trace.gate_scores) == {"cosine"}
+    assert answer.trace.gate_scores["cosine"] == answer.gate_score
+
+
+def test_a_question_outside_the_index_has_no_gate_scores(index):
+    answer = _answerer(index).ask(ON_TOPIC, Scope(CIK + 1))
+
+    assert answer.trace.gate_scores == {}
