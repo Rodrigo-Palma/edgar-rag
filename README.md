@@ -273,6 +273,7 @@ default. Both are needed before it listens anywhere else.
 | `src/edgar_rag/index.py` | vector index, cosine search, disk format |
 | `src/edgar_rag/models.py` | Ollama embedding and generation, lower-cased and pinned |
 | `src/edgar_rag/edgar/` | EDGAR client, XBRL facts and the 10-K parser |
+| `src/edgar_rag/amounts.py` | amounts as a filing writes them, shared by the evaluation and the citation check |
 | `src/edgar_rag/telemetry.py` | per-stage timing and the one JSON line per request |
 | `src/edgar_rag/domain.py` | the values the pipeline passes around, and the ports it calls |
 
