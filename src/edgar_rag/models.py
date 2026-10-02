@@ -1,17 +1,28 @@
 """Embedding and generation, served by a local Ollama."""
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from types import MappingProxyType
 from typing import Any, cast
 
 import httpx
 import numpy as np
 from numpy.typing import NDArray
 
+from edgar_rag.domain import Generation
+
 REQUEST_TIMEOUT_SECONDS = 120.0
 # A health check has to answer fast whatever Ollama is doing.
 PROBE_TIMEOUT_SECONDS = 2.0
 PROBE_TTL_SECONDS = 10.0
+
+# Fixed so the same prompt gets the same answer: replay keys recorded
+# generations on the prompt, and the protocol measures determinism on
+# repeated cases. num_ctx is set rather than left to the server, whose
+# default would silently truncate four passages and the instructions.
+GENERATION_OPTIONS: Mapping[str, int] = MappingProxyType(
+    {"temperature": 0, "seed": 0, "num_ctx": 8192}
+)
 
 
 class ModelError(RuntimeError):
@@ -88,26 +99,61 @@ class OllamaEmbedder:
 
 
 class OllamaGenerator:
-    """Generate an answer with a model running on the machine."""
+    """Generate an answer with a model running on the machine.
 
-    def __init__(self, base_url: str, model: str, *, client: httpx.Client | None = None) -> None:
+    Sampling is pinned by ``GENERATION_OPTIONS`` and thinking is off, so the
+    reply depends on the prompt alone. ``clock`` measures how long the caller
+    waited; a test passes its own.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        *,
+        client: httpx.Client | None = None,
+        clock: Callable[[], float] = time.perf_counter,
+    ) -> None:
         self._url = f"{base_url.rstrip('/')}/api/generate"
         self._model = model
         self._client = client
+        self._clock = clock
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Generation:
+        started = self._clock()
         payload = _post(
             self._url,
-            {"model": self._model, "prompt": prompt, "stream": False, "think": False},
+            {
+                "model": self._model,
+                "prompt": prompt,
+                "stream": False,
+                "think": False,
+                "options": dict(GENERATION_OPTIONS),
+            },
             self._client,
         )
+        seconds = self._clock() - started
         response = payload.get("response") or ""
         if not isinstance(response, str):
             raise ModelError(f"{self._model} returned a {type(response).__name__}, not text")
         answer = response.strip()
         if not answer:
             raise ModelError(f"{self._model} returned an empty answer")
-        return answer
+        return Generation(
+            text=answer,
+            prompt_tokens=self._count(payload, "prompt_eval_count"),
+            completion_tokens=self._count(payload, "eval_count"),
+            seconds=seconds,
+        )
+
+    def _count(self, payload: dict[str, Any], field: str) -> int | None:
+        """A token count from the reply; absent is unknown, not zero."""
+        count = payload.get(field)
+        if count is None:
+            return None
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ModelError(f"{self._model} returned {field}={count!r}, not a token count")
+        return count
 
 
 class OllamaProbe:

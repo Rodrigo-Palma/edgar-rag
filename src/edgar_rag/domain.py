@@ -140,8 +140,24 @@ class Embedder(Protocol):
     def embed(self, texts: Sequence[str]) -> NDArray[np.float32]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class Generation:
+    """What the model wrote, and what writing it cost.
+
+    A token count is ``None`` when the backend did not report it, which is
+    not the same as zero: Ollama leaves ``prompt_eval_count`` out when the
+    whole prompt came from its cache. ``seconds`` is the wall-clock time the
+    caller waited, whatever the backend says it spent.
+    """
+
+    text: str
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    seconds: float
+
+
 class Generator(Protocol):
-    def generate(self, prompt: str) -> str: ...
+    def generate(self, prompt: str) -> Generation: ...
 
 
 class RelevanceGate(Protocol):

@@ -25,7 +25,7 @@ from fastapi.responses import Response
 from edgar_rag import __version__
 from edgar_rag.answer import Answerer
 from edgar_rag.config import ServiceSettings
-from edgar_rag.domain import Answer, Generator, RelevanceGate
+from edgar_rag.domain import Answer, Generation, Generator, RelevanceGate
 from edgar_rag.gate import BrierGate, CosineGate
 from edgar_rag.index import FilingIndex
 from edgar_rag.models import OllamaEmbedder, OllamaGenerator, OllamaProbe
@@ -59,7 +59,7 @@ class GenerationSlots:
     generator: Generator
     slots: threading.BoundedSemaphore
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Generation:
         if not self.slots.acquire(blocking=False):
             raise ServiceBusy("every generation slot is taken")
         try:

@@ -92,7 +92,7 @@ class Answerer[Index: Retriever]:
         drawn = draw(self.nonce)
         prompt = build_prompt(question, passages, drawn)
         with timer.measure("generate"):
-            generated = self.generator.generate(prompt)
+            generated = self.generator.generate(prompt).text
         if generated.strip() == refusal_token(drawn):
             return _abstention(question, AbstentionReason.MODEL_DECLINED, decision, best_score)
 

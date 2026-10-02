@@ -12,7 +12,14 @@ import numpy as np
 from numpy.typing import NDArray
 
 from edgar_rag.answer import Answerer
-from edgar_rag.domain import Embedder, GateDecision, Generator, RelevanceGate, ScoredChunk
+from edgar_rag.domain import (
+    Embedder,
+    GateDecision,
+    Generation,
+    Generator,
+    RelevanceGate,
+    ScoredChunk,
+)
 from edgar_rag.gate import CosineGate
 from edgar_rag.index import FilingIndex
 
@@ -35,15 +42,24 @@ class FakeEmbedder:
 
 
 class FakeGenerator:
-    """Replies with a fixed text and records every prompt it was given."""
+    """Replies with a fixed text and records every prompt it was given.
+
+    It reports one token per word of the prompt and of the reply, and no time,
+    so a test can tell the counts that reached it from a default.
+    """
 
     def __init__(self, reply: str) -> None:
         self.reply = reply
         self.prompts: list[str] = []
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Generation:
         self.prompts.append(prompt)
-        return self.reply
+        return Generation(
+            text=self.reply,
+            prompt_tokens=len(prompt.split()),
+            completion_tokens=len(self.reply.split()),
+            seconds=0.0,
+        )
 
 
 class FakeGate:

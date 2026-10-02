@@ -15,6 +15,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from edgar_rag.config import ServiceSettings
+from edgar_rag.domain import Generation
 from edgar_rag.gate import CosineGate
 from edgar_rag.index import FilingIndex
 from edgar_rag.service.app import create_app
@@ -42,12 +43,12 @@ class HeldGenerator:
         with self._lock:
             return self._entered
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Generation:
         with self._lock:
             self._entered += 1
         if not self.release.wait(PATIENCE_SECONDS):
             raise AssertionError("the test never released the generation")
-        return CITED_REPLY
+        return Generation(CITED_REPLY, prompt_tokens=None, completion_tokens=None, seconds=0.0)
 
 
 def _until(condition, what: str) -> None:
@@ -242,7 +243,7 @@ def test_the_question_itself_is_not_logged(index, caplog):
 
 def test_a_crash_is_logged_as_a_500(index, caplog):
     class CrashingGenerator:
-        def generate(self, prompt: str) -> str:
+        def generate(self, prompt: str) -> Generation:
             raise RuntimeError("a bug, not a backend failure")
 
     app = create_app(ServiceSettings(), fake_answerer(index, generator=CrashingGenerator()))

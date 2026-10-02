@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from edgar_rag.config import ServiceSettings
+from edgar_rag.domain import Generation
 from edgar_rag.gate import BrierGate, CosineGate, GateError
 from edgar_rag.index import FilingIndex
 from edgar_rag.models import ModelError
@@ -98,7 +99,7 @@ def test_ask_reports_a_model_failure_as_a_bad_gateway_without_its_url(index, cap
     """Adversarial case 15: the detail is generic, the log keeps what failed."""
 
     class BrokenGenerator:
-        def generate(self, prompt: str) -> str:
+        def generate(self, prompt: str) -> Generation:
             raise ModelError(
                 "http://localhost:11434/api/generate did not answer: ConnectError: refused"
             )

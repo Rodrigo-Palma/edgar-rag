@@ -44,10 +44,51 @@ def test_embedding_nothing_is_a_caller_error(monkeypatch):
 def test_generator_returns_the_trimmed_answer(monkeypatch):
     sent = _reply(monkeypatch, {"response": "  an answer [1]  "})
 
-    answer = OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")
+    generation = OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")
 
-    assert answer == "an answer [1]"
+    assert generation.text == "an answer [1]"
     assert sent[0]["json"]["stream"] is False
+
+
+def test_the_generator_asks_for_the_same_answer_every_time(monkeypatch):
+    """Replay keys recorded generations on the prompt, so sampling must not vary."""
+    sent = _reply(monkeypatch, {"response": "an answer [1]"})
+
+    OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")
+
+    body = sent[0]["json"]
+    assert body["think"] is False
+    assert body["options"] == {"temperature": 0, "seed": 0, "num_ctx": 8192}
+
+
+def test_the_generator_reports_its_tokens_and_the_seconds_it_took(monkeypatch):
+    _reply(monkeypatch, {"response": "an answer [1]", "prompt_eval_count": 812, "eval_count": 9})
+    ticks = iter((100.0, 102.5))
+
+    generation = OllamaGenerator(
+        "http://localhost:11434", "qwen3", clock=lambda: next(ticks)
+    ).generate("a prompt")
+
+    assert (generation.prompt_tokens, generation.completion_tokens) == (812, 9)
+    assert generation.seconds == 2.5
+
+
+def test_token_counts_the_server_left_out_are_unknown_not_zero(monkeypatch):
+    """Ollama omits ``prompt_eval_count`` when the whole prompt came from its cache."""
+    _reply(monkeypatch, {"response": "an answer [1]", "eval_count": 0})
+
+    generation = OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")
+
+    assert generation.prompt_tokens is None
+    assert generation.completion_tokens == 0
+
+
+@pytest.mark.parametrize("count", [-1, "812", 8.5, True], ids=["negative", "text", "float", "bool"])
+def test_a_token_count_that_is_not_a_count_is_a_model_error(monkeypatch, count):
+    _reply(monkeypatch, {"response": "an answer [1]", "eval_count": count})
+
+    with pytest.raises(ModelError, match="eval_count"):
+        OllamaGenerator("http://localhost:11434", "qwen3").generate("a prompt")
 
 
 def test_an_empty_generation_is_an_error_not_an_empty_answer(monkeypatch):
@@ -172,9 +213,9 @@ def test_a_generator_given_a_client_sends_through_it(monkeypatch):
     client, seen = _client_answering({"response": "an answer [1]"})
 
     with client:
-        answer = OllamaGenerator("http://ollama.test", "qwen3", client=client).generate("p")
+        generation = OllamaGenerator("http://ollama.test", "qwen3", client=client).generate("p")
 
-    assert answer == "an answer [1]"
+    assert generation.text == "an answer [1]"
     assert [str(request.url) for request in seen] == ["http://ollama.test/api/generate"]
 
 
