@@ -1,9 +1,9 @@
 """Build the golden set from the pinned snapshots, without the network.
 
-    python -m edgar_rag.eval.build fetch          # once, with the network
-    python -m edgar_rag.eval.build build          # writes eval/golden/v1.*
-    python -m edgar_rag.eval.build build --check  # rebuilds, compares bytes
-    python -m edgar_rag.eval.build stats          # counts and drops
+    edgar-rag eval golden-fetch     # once, with the network
+    edgar-rag eval build            # writes eval/golden/v1.*
+    edgar-rag eval build --check    # rebuilds, compares bytes
+    edgar-rag eval golden-stats     # counts and drops
 
 ``build`` reads ``eval/companies.toml``, ``eval/filings.lock.json`` and
 ``eval/snapshots/``, checks every snapshot against its SHA-256 in the lock and
@@ -30,12 +30,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 from bs4 import XMLParsedAsHTMLWarning
+from pydantic import ValidationError
 
 from edgar_rag.chunking import chunk_sections
+from edgar_rag.config import IngestSettings
+from edgar_rag.edgar.client import EdgarClient
+from edgar_rag.edgar.fetch import REQUEST_TIMEOUT_SECONDS, Fetcher, SystemClock
 from edgar_rag.edgar.parse import split_into_sections
 from edgar_rag.edgar.xbrl import parse_companyfacts
 from edgar_rag.eval import candidates
+from edgar_rag.eval.acquire import acquire
 from edgar_rag.eval.candidates import CompanyData, Drops, FilingText
 from edgar_rag.eval.golden import GoldenCase, NarrativeCase, dumps_cases, load_cases
 from edgar_rag.eval.selection import (
@@ -182,7 +188,7 @@ def select(
     pool: Sequence[GoldenCase],
     lock: FilingsLock,
     seed: int,
-    quotas: Mapping[str, E2eQuota] = E2E_QUOTAS,
+    quotas: Mapping[str, E2eQuota],
 ) -> tuple[GoldenCase, ...]:
     """The golden set: every positive, balanced negatives, the e2e tier marked."""
     selected: list[GoldenCase] = []
@@ -222,7 +228,7 @@ def check_leakage(cases: Sequence[GoldenCase]) -> None:
         )
 
 
-def build(paths: EvalPaths, quotas: Mapping[str, E2eQuota] = E2E_QUOTAS) -> Built:
+def build(paths: EvalPaths, quotas: Mapping[str, E2eQuota] | None = None) -> Built:
     """Everything ``build`` writes, in memory.
 
     Raises:
@@ -231,7 +237,7 @@ def build(paths: EvalPaths, quotas: Mapping[str, E2eQuota] = E2E_QUOTAS) -> Buil
     roster, lock, companies = load_corpus(paths)
     drops = Drops()
     pool = candidate_pool(companies, drops)
-    cases = select(pool, lock, roster.sample_seed, quotas)
+    cases = select(pool, lock, roster.sample_seed, E2E_QUOTAS if quotas is None else quotas)
     check_leakage(cases)
     golden = dumps_cases(cases).encode("utf-8")
     stats = summarize(cases, pool, drops, lock)
@@ -350,7 +356,9 @@ def _write_or_check(paths: EvalPaths, built: Built, *, check: bool) -> int:
     return 0
 
 
-def run_build(paths: EvalPaths, *, check: bool, quotas: Mapping[str, E2eQuota] = E2E_QUOTAS) -> int:
+def run_build(
+    paths: EvalPaths, *, check: bool, quotas: Mapping[str, E2eQuota] | None = None
+) -> int:
     try:
         built = build(paths, quotas)
     except (ValueError, KeyError, OSError) as error:
@@ -397,15 +405,12 @@ def run_stats(paths: EvalPaths) -> int:
 
 
 def run_fetch(paths: EvalPaths, cache: Path) -> int:  # pragma: no cover - needs the network
-    import httpx
-
-    from edgar_rag.config import IngestSettings
-    from edgar_rag.edgar.client import EdgarClient
-    from edgar_rag.edgar.fetch import REQUEST_TIMEOUT_SECONDS, Fetcher, SystemClock
-    from edgar_rag.edgar.user_agent import validate_user_agent
-    from edgar_rag.eval.acquire import acquire
-
-    user_agent = validate_user_agent(IngestSettings().edgar_user_agent)
+    """Download and pin the inputs once, through the paced EDGAR client."""
+    try:
+        user_agent = IngestSettings().edgar_user_agent
+    except ValidationError as error:
+        print(f"configuration: {error}", file=sys.stderr)
+        return 1
     headers = {"User-Agent": user_agent, "Accept-Encoding": "gzip, deflate"}
     clock = SystemClock()
     with (
@@ -424,30 +429,43 @@ def run_fetch(paths: EvalPaths, cache: Path) -> int:  # pragma: no cover - needs
     return 0
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="python -m edgar_rag.eval.build", description=__doc__.split("\n")[0]
+def add_root_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--root", type=Path, default=Path("eval"), help="the eval directory (default: eval)"
     )
-    parser.add_argument("--root", type=Path, default=Path("eval"), help="the eval directory")
-    commands = parser.add_subparsers(dest="command", required=True)
-    build_parser = commands.add_parser("build", help="write the golden set from the snapshots")
-    build_parser.add_argument("--check", action="store_true", help="compare instead of writing")
-    commands.add_parser("stats", help="print counts and drops")
-    fetch_parser = commands.add_parser("fetch", help="download and pin the inputs (network)")
-    fetch_parser.add_argument(
-        "--cache", type=Path, default=Path("data/cache"), help="download cache"
+
+
+def add_build_arguments(parser: argparse.ArgumentParser) -> None:
+    add_root_argument(parser)
+    parser.add_argument(
+        "--check", action="store_true", help="rebuild and compare with the files, writing nothing"
     )
-    args = parser.parse_args(argv)
-    paths = EvalPaths(args.root)
+
+
+def add_fetch_arguments(parser: argparse.ArgumentParser) -> None:
+    add_root_argument(parser)
+    parser.add_argument(
+        "--cache", type=Path, default=Path("data/cache"), help="download cache, outside git"
+    )
+
+
+def run_build_command(args: argparse.Namespace) -> int:
     with warnings.catch_warnings():
         # iXBRL documents are XHTML; parsing them as HTML is what the index does too
         warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
-        if args.command == "build":
-            return run_build(paths, check=args.check)
-        if args.command == "stats":
-            return run_stats(paths)
-        return run_fetch(paths, args.cache)
+        return run_build(EvalPaths(args.root), check=args.check)
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def run_stats_command(args: argparse.Namespace) -> int:
+    return run_stats(EvalPaths(args.root))
+
+
+def run_fetch_command(args: argparse.Namespace) -> int:  # pragma: no cover - needs the network
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+        return run_fetch(EvalPaths(args.root), args.cache)
+
+
+BUILD_HELP = "build the golden set from the pinned snapshots (--check compares bytes)"
+STATS_HELP = "print the golden set's counts by split, subtype and company, and its drops"
+FETCH_HELP = "download and pin the golden set's filings and facts (needs the network)"

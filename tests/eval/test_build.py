@@ -4,13 +4,14 @@ import json
 
 import pytest
 
+from edgar_rag import cli
+from edgar_rag.eval import build as build_module
 from edgar_rag.eval.build import (
     BRIER_NAMES,
     EvalPaths,
     build,
     check_leakage,
     check_narratives,
-    main,
     run_build,
 )
 from edgar_rag.eval.golden import NEGATIVE_KINDS, GoldenCase, NarrativeCase, dumps_cases, load_cases
@@ -190,11 +191,27 @@ def test_stats_prints_the_tables_and_refuses_a_stale_file(root, capsys, monkeypa
     run_build(paths, check=False, quotas=SMALL)
     capsys.readouterr()
 
-    assert main(["--root", str(root), "stats"]) == 0
+    assert cli.main(["eval", "golden-stats", "--root", str(root)]) == 0
     out = capsys.readouterr().out
     assert "gate_only" in out and "dev/positive" in out and "golden sha256" in out
 
     stats = json.loads(paths.stats.read_text())
     stats["gate_only"]["dev/positive"] += 1
     paths.stats.write_text(json.dumps(stats))
-    assert main(["--root", str(root), "stats"]) == 1
+    assert cli.main(["eval", "golden-stats", "--root", str(root)]) == 1
+
+
+def test_the_build_command_writes_then_checks_through_the_cli(root, monkeypatch, capsys):
+    monkeypatch.setattr(build_module, "E2E_QUOTAS", SMALL)
+
+    assert cli.main(["eval", "build", "--root", str(root)]) == 0
+    assert cli.main(["eval", "build", "--root", str(root), "--check"]) == 0
+    assert "rebuilt byte for byte" in capsys.readouterr().out
+
+
+def test_the_eval_help_lists_the_golden_set_commands(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["eval", "--help"])
+
+    out = capsys.readouterr().out
+    assert all(name in out for name in ("build", "golden-stats", "golden-fetch"))

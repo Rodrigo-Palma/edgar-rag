@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from edgar_rag.config import IngestSettings, ServiceSettings
 from edgar_rag.edgar.client import EdgarClient, EdgarError, Filing
 from edgar_rag.edgar.fetch import REQUEST_TIMEOUT_SECONDS as EDGAR_TIMEOUT_SECONDS
-from edgar_rag.eval import power
+from edgar_rag.eval import build, power
 from edgar_rag.ingest import index_filing
 from edgar_rag.models import REQUEST_TIMEOUT_SECONDS as MODEL_TIMEOUT_SECONDS
 from edgar_rag.models import ModelError, OllamaEmbedder
@@ -37,7 +37,14 @@ class EvalCommand:
     run: Callable[[argparse.Namespace], int]
 
 
-EVAL_COMMANDS = (EvalCommand("power", power.DESCRIPTION, power.add_arguments, power.run),)
+EVAL_COMMANDS = (
+    EvalCommand("power", power.DESCRIPTION, power.add_arguments, power.run),
+    EvalCommand("build", build.BUILD_HELP, build.add_build_arguments, build.run_build_command),
+    EvalCommand("golden-stats", build.STATS_HELP, build.add_root_argument, build.run_stats_command),
+    EvalCommand(
+        "golden-fetch", build.FETCH_HELP, build.add_fetch_arguments, build.run_fetch_command
+    ),
+)
 
 
 def main(argv: Sequence[str] | None = None, *, transport: httpx.BaseTransport | None = None) -> int:
