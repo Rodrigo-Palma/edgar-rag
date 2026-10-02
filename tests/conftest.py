@@ -1,3 +1,4 @@
+import httpx
 import numpy as np
 import pytest
 
@@ -20,3 +21,18 @@ def index() -> FilingIndex:
     )
     vectors = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
     return build_index({"company": "Example Inc"}, chunks, vectors)
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Fail any test that reaches for a real socket through httpx.
+
+    Every outbound call goes through an injected client, so a test that forgot
+    to give one a ``MockTransport`` would otherwise quietly call a local
+    Ollama when one happens to be running.
+    """
+
+    def refuse(self, request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"a test tried to reach {request.url}")
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
