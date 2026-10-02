@@ -6,7 +6,8 @@ attacker controls it (a retrieved passage, or the question) and checks that it
 cannot leave the data block, impersonate the prompt or decide the outcome.
 
 Mapping to the security audit of 2026-10-01 (cases 1 to 9 and 19 belong here;
-10 to 13 are the citation check, 14 to 18 error handling, 20 to 22 EDGAR):
+10 to 13 are the citation check in test_citation_check.py, 14 to 18 error
+handling, 20 to 22 EDGAR):
 
 - 1  nested closing tag                  test_a_nested_closing_tag_cannot_close_the_block
 - 2  case, spacing, entity, wide forms   test_no_spelling_of_the_closing_tag_survives

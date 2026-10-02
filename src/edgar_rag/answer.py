@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from edgar_rag.citations import as_citations, markers_in
+from edgar_rag.citations import as_citations, check_claims, markers_in
 from edgar_rag.domain import (
     DEFAULT_TOP_K,
     AbstentionReason,
@@ -115,6 +115,15 @@ class Answerer[Index: Retriever]:
                 question, AbstentionReason.NO_VALID_CITATION, decision, best_score, trace
             )
 
+        failure = check_claims(generated, passages)
+        if failure is not None:
+            # One marker used to approve the whole answer. Each sentence that
+            # states something now needs its own, and its figures have to be
+            # in the passage it points at, or the answer is withheld.
+            return _abstention(
+                question, failure.reason, decision, best_score, trace, finding=failure.finding
+            )
+
         return Answer(
             question=question,
             text=generated,
@@ -135,19 +144,23 @@ def _abstention(
     decision: GateDecision,
     retrieval_score: float,
     trace: Trace,
+    finding: str | None = None,
 ) -> Answer:
     """Withhold the answer, keeping what the gate said even when it admitted.
 
     A model refusal after a degraded gate is still a degraded request, so the
     gate's score and flag travel with every abstention, not only its own.
+    ``finding`` names what the citation check found, so a caller can see which
+    sentence failed without receiving the withheld text.
     """
+    because = decision.reason if finding is None else f"{finding}; {decision.reason}"
     return Answer(
         question=question,
         text=None,
         citations=(),
         abstained=True,
         reason=reason,
-        detail=f"{abstained_message(reason)} ({decision.reason})",
+        detail=f"{abstained_message(reason)} ({because})",
         retrieval_score=retrieval_score,
         gate_score=decision.confidence,
         degraded=decision.degraded,

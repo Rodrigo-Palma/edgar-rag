@@ -58,10 +58,9 @@ class AbstentionReason(StrEnum):
     could not be acted on without parsing it, so the reason is a closed set
     and the prose lives in ``Answer.detail``.
 
-    ``out_of_period``, ``unsupported_claim`` and ``out_of_scope`` belong to
-    checks that are not in the pipeline yet (the period guard, the citation
-    support check and multi-filing scope). They are published now so adding
-    those checks does not change the contract.
+    ``out_of_period`` and ``out_of_scope`` belong to checks that are not in
+    the pipeline yet (the period guard and multi-filing scope). They are
+    published now so adding those checks does not change the contract.
     """
 
     GATE_REJECTED = "gate_rejected"

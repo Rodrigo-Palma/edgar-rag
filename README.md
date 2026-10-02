@@ -41,12 +41,25 @@ answer it does give names the passage it came from.
 
 ## The guarantee, and what enforces it
 
-Every claim traceable to a filing. That sentence is worth nothing unless
-something checks it, and for a while nothing did: an answer that cited no
-passage at all was returned as an answer. Now the markers are parsed, matched
-against the passages actually retrieved, and an answer with no valid marker
-becomes an abstention whose reason is *"the answer cited no passage, so it
-could not be checked"*.
+Every figure traceable to the passage it cites. That sentence is worth nothing
+unless something checks it, and for a while nothing did: an answer that cited
+no passage at all was returned as an answer, and later one valid marker
+approved every sentence around it. Now each answer is checked sentence by
+sentence, without a model:
+
+- a sentence with a digit, or with more than eight content words, has to carry
+  a `[n]` marker that points at a passage actually retrieved, or the answer
+  abstains with `no_valid_citation`;
+- every amount in that sentence has to appear in a passage it cites, at the
+  precision the answer shows (`$31.4 billion` is backed by `31,370` under an
+  "in millions" header, `$31,371 million` is not), or the answer abstains with
+  `unsupported_claim` and the detail names the figure.
+
+What it does not check: wording without digits (a cited sentence can still
+paraphrase wrongly), figures the model computed rather than copied (a growth
+rate the passage does not print is withheld even when it is right), and the
+scale of a figure the passage prints without one, which is accepted from ones
+to billions because tables state the unit once in a header.
 
 The citations quote the window around the sentence with the most overlap with
 the question, not the first 400 characters of the chunk, which is rarely the
@@ -222,9 +235,9 @@ An abstention has no `text`, and says which check withheld the answer:
 
 `reason` is one of `gate_rejected`, `out_of_period`, `model_declined`,
 `no_valid_citation`, `unsupported_claim` or `out_of_scope`, and is `null` on an
-answer. Today the pipeline emits the first, third and fourth; the others are
-reserved for the period guard, the citation support check and multi-filing
-scope, so adding them does not change the response. `gate_score` is the gate's
+answer. Today the pipeline emits the first, third, fourth and fifth; the others
+are reserved for the period guard and multi-filing scope, so adding them does
+not change the response. `gate_score` is the gate's
 own confidence: cosine similarity for the cosine gate, a probability for the
 model gate.
 
@@ -267,7 +280,7 @@ default. Both are needed before it listens anywhere else.
 | `src/edgar_rag/answer.py` | the `Answerer`: retrieve, gate, generate, check the citations, or abstain |
 | `src/edgar_rag/config.py` | settings for the service, the ingestion and the evaluation |
 | `src/edgar_rag/prompt.py` | the generation prompt and the untrusted-text guard |
-| `src/edgar_rag/citations.py` | which passages an answer cites, and the quote shown for each |
+| `src/edgar_rag/citations.py` | which passages an answer cites, whether each sentence is backed by them, and the quote shown |
 | `src/edgar_rag/chunking.py` | sections into passages, cut on sentence boundaries |
 | `src/edgar_rag/gate.py` | the relevance gate: cosine, model, and the fallback |
 | `src/edgar_rag/index.py` | vector index, cosine search, disk format |
