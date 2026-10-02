@@ -21,8 +21,8 @@ judges exist today, both in `src/edgar_rag/gate.py`:
   at the first that clears `min_confidence`. It depends on a service that can be
   down.
 
-Measured on ten hand-picked questions against one Apple 10-K (README, "What the
-model gate buys"): at the operating point that admits all 5 answerable
+Measured on ten hand-picked questions against one Apple 10-K ([README at
+`7b0d9ae`, "What the model gate buys"](https://github.com/Rodrigo-Palma/edgar-rag/blob/7b0d9ae/README.md#what-the-model-gate-buys)): at the operating point that admits all 5 answerable
 questions, cosine wrongly admits 4 of 5 unanswerable ones and the model gate 1
 of 5. That is n=5 per class and a direction, not an inference.
 
@@ -61,21 +61,18 @@ the code before that.
 ## Consequences
 
 - A refused question costs one embedding and one vector search (0.06 s measured
-  on the off-topic question in the README), against 6.0 s and 19.6 s for the two
+  on the off-topic question in [README at `7b0d9ae`, "Measured on the first
+  filing"](https://github.com/Rodrigo-Palma/edgar-rag/blob/7b0d9ae/README.md#measured-on-the-first-filing)), against 6.0 s and 19.6 s for the two
   questions that reached generation.
   This is what makes large gate-only evaluations affordable.
 - The gate sees passages, not the answer, so it cannot catch a model that
   answers wrongly from relevant passages. That is covered after generation by
   the model's own refusal and by the citation check, which are separate
   abstention paths with their own reasons.
-- Swapping the judge is a new adapter and one line in `provide_gate`; nothing in
+- Swapping the judge is a new adapter and one line in `build_gate`; nothing in
   `answer.py` changes. The cost is that thresholds live per adapter
-  (`min_retrieval_score`, `brier_min_confidence`) and are not comparable across
-  them.
-- Known gap: `degraded` stops at `GateDecision`. `Answer` has no field for it, so
-  the HTTP response does not yet tell the caller that the fallback judged the
-  question, even though the README shows the field. Until it is propagated the
-  only signal is the text of `reason`.
+  (`min_retrieval_score` for cosine, and `brier_min_confidence` for `BrierGate`
+  until ADR-0014 removed it) and are not comparable across them.
 - `BrierGate` is plugged in over plain HTTP and is optional by design; the
   default configuration runs with no external service.
 
