@@ -1,0 +1,37 @@
+# The service in a container, the models on the host.
+#
+# Ollama runs on the host because that is where the GPU is (Metal on a Mac is
+# not reachable from a container). Docker Desktop resolves
+# host.docker.internal to the host; on Linux, extra_hosts maps it to the
+# gateway, and Ollama has to listen beyond loopback (OLLAMA_HOST=0.0.0.0).
+#
+#   EDGAR_RAG_INDEX=/path/to/index docker compose up --build
+#
+# The index is built on the host with `edgar-rag ingest` and mounted read-only.
+
+services:
+  edgar-rag:
+    build: .
+    image: edgar-rag:local
+    environment:
+      EDGAR_RAG_OLLAMA_BASE_URL: http://host.docker.internal:11434
+      EDGAR_RAG_GENERATION_MODEL: ${EDGAR_RAG_GENERATION_MODEL:-qwen3:32b}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      # No authentication and no rate limit: published on the host's
+      # loopback only, like `edgar-rag serve` binds it outside a container.
+      - 127.0.0.1:${EDGAR_RAG_PORT:-8000}:8000
+    volumes:
+      - type: bind
+        source: ${EDGAR_RAG_INDEX:-./data/index}
+        target: /data/index
+        read_only: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
