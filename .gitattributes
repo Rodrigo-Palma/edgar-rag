@@ -1,0 +1,5 @@
+# Vectors are float32 and base64 float32: they do not diff or compress, so
+# they live in Git LFS. The text beside them (chunks, manifests, generations)
+# stays in git, where a change to it can be reviewed.
+eval/ci/index/**/vectors.npy filter=lfs diff=lfs merge=lfs -text
+eval/**/tape/embed.jsonl filter=lfs diff=lfs merge=lfs -text
