@@ -370,6 +370,12 @@ prompt or passage the tape never recorded fails the replay itself;
 `make eval-ci-record` rebuilds the index, records a fresh tape with
 `qwen3:8b` and rewrites the baseline, in one change.
 
+[Pull request #4](https://github.com/Rodrigo-Palma/edgar-rag/pull/4), closed
+unmerged, is the gate doing its job: a one-line change to the period guard's
+year pattern that every unit test accepts stops reading the year in "for its
+fiscal 2017.", and the job fails on a net worsening of 34 gate-only
+wrong-year cases under the arms with the guard.
+
 The tier is small: end to end, a rate is known only to within about 10
 percentage points for the 100 answerable cases and 18 for each kind of
 unanswerable one. Passing means none of these cases got worse, not that
