@@ -41,13 +41,17 @@ flowchart TD
   R --> G["one generation<br/>per question<br/>qwen3:32b, temperature 0"]
   T["cosine and brier<br/>thresholds, cross-fitted<br/>by company, R90"] -.-> M
   G --> M{"six arms:<br/>masks over the<br/>same generation"}
-  M --> A["A none"] & B["B cosine"] & C["C brier<br/>(removed)"]
-  A ~~~ D["D period"]
-  B ~~~ E["E period + brier<br/>(removed)"]
-  C ~~~ F["F period + cosine"]
-  M --> D & E & F
-  A & F -.- H1["H1<br/>FAR(A) - FAR(F)"]
-  E & F -.- H2["H2, paired<br/>FAR(E) - FAR(F)"]
+  subgraph without["without the period guard"]
+    direction LR
+    A["A none"] ~~~ B["B cosine"] ~~~ C["C brier<br/>(removed)"]
+  end
+  subgraph with["behind the period guard"]
+    direction LR
+    D["D period"] ~~~ F["F period + cosine"] ~~~ E["E period + brier<br/>(removed)"]
+  end
+  M --> without
+  without ~~~ with
+  with -.- H["H1: FAR(A) - FAR(F)<br/>H2, paired: FAR(E) - FAR(F)"]
 ```
 
 An arm decides only whether the shared generation is kept, so every difference
