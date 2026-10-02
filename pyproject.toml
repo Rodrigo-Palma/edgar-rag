@@ -108,6 +108,7 @@ source_modules = [
     "edgar_rag.eval.numeric",
     "edgar_rag.eval.power",
     "edgar_rag.eval.records",
+    "edgar_rag.eval.regression",
     "edgar_rag.eval.report",
     "edgar_rag.eval.summary",
     "edgar_rag.amounts",

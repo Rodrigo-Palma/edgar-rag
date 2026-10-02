@@ -20,7 +20,7 @@ from edgar_rag.config import IngestSettings, ServiceSettings, SnapshotIngestSett
 from edgar_rag.domain import EmbedderSpec
 from edgar_rag.edgar.client import EdgarClient, EdgarError, Filing
 from edgar_rag.edgar.fetch import REQUEST_TIMEOUT_SECONDS as EDGAR_TIMEOUT_SECONDS
-from edgar_rag.eval import build, commands, power
+from edgar_rag.eval import build, commands, power, regression_command
 from edgar_rag.eval.build import EvalPaths
 from edgar_rag.eval.corpus import index_pinned, pinned_filings
 from edgar_rag.eval.replay_serving import open_replay
@@ -55,6 +55,12 @@ EVAL_COMMANDS = (
     EvalCommand("run", commands.RUN_HELP, commands.add_run_arguments, commands.run_run_command),
     EvalCommand(
         "report", commands.REPORT_HELP, commands.add_report_arguments, commands.run_report_command
+    ),
+    EvalCommand(
+        "ci",
+        regression_command.CI_HELP,
+        regression_command.add_arguments,
+        regression_command.run,
     ),
 )
 
