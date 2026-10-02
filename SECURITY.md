@@ -2,7 +2,13 @@
 
 ## Supported versions
 
-Only the `main` branch is supported. Fixes land there; there are no maintained
+| Version | Supported |
+|---|---|
+| latest release (v1.x) | yes |
+| `main` | yes |
+| older releases | no |
+
+Fixes land on `main` and ship in the next v1.x release. There are no maintained
 release branches.
 
 ## Scope
@@ -18,6 +24,8 @@ The threat model follows from that:
 - **There is no authentication, by design.** The service binds to a local address
   and is not meant to be exposed to a network. Running it on a public interface
   is outside the supported setup.
+  Setting `EDGAR_RAG_HOST` to an address beyond loopback logs a warning at
+  startup; it is still unsupported.
 - **Secrets stay out of the repository.** The only credential-like value is the
   SEC User-Agent (a contact e-mail address), read from the environment or a local
   `.env` file that git ignores.
@@ -32,6 +40,7 @@ machine running the service.
 
 ## Reporting a vulnerability
 
-Please do not open a public issue. E-mail **email.rodrigopalma@gmail.com** with a
-description, the steps to reproduce it and the commit you tested against. You can
-expect an acknowledgement within 7 days.
+Please do not open a public issue. Report it privately through GitHub: open the
+repository's **Security** tab and choose **Report a vulnerability**. Include a
+description, the steps to reproduce it and the commit or release you tested
+against. You can expect an acknowledgement within 7 days.
