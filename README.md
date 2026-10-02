@@ -158,8 +158,8 @@ make check                  # lint, types, import contracts, tests with coverage
 cp .env.example .env        # the SEC requires a real contact in EDGAR_RAG_EDGAR_USER_AGENT
 ollama pull nomic-embed-text && ollama pull qwen3:32b
 
-uv run python scripts/ingest.py --cik 320193    # Apple's latest 10-K
-uv run python -m edgar_rag.service.app           # serves on 127.0.0.1:8000
+uv run edgar-rag ingest --cik 320193     # Apple's latest 10-K
+uv run edgar-rag serve                   # serves on 127.0.0.1:8000
 ```
 
 ```bash

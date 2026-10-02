@@ -3,7 +3,7 @@
 Run before the evaluation, so the report can say which differences this sample
 can and cannot resolve:
 
-    python -m edgar_rag.eval.power --n-companies 20 --neg-per-company 15
+    edgar-rag eval power --n-companies 20 --neg-per-company 15
 
 The simulated comparisons go through the same estimator as the report
 (``bootstrap_mean``: cluster bootstrap by company, stratified by
@@ -358,8 +358,8 @@ def build_report(
     return "\n".join(header + body)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    """The design parameters, defaulting to the pre-registered protocol."""
     parser.add_argument("--n-companies", type=int, default=20)
     parser.add_argument("--neg-per-company", type=int, default=15)
     parser.add_argument("--per-subtype", type=int, default=75)
@@ -372,11 +372,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--resamples", type=int, default=5_000)
     parser.add_argument("--seed", type=int, default=20261001)
     parser.add_argument("--calibrated-confidence", type=float, default=CALIBRATED_CONFIDENCE)
-    return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+def run(args: argparse.Namespace) -> int:
+    """Print the power report for the design in ``args``."""
     design = Design(
         n_companies=args.n_companies,
         negatives_per_company=args.neg_per_company,
@@ -397,6 +396,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     )
     return 0
+
+
+DESCRIPTION = __doc__.splitlines()[0] if __doc__ else ""
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=DESCRIPTION)
+    add_arguments(parser)
+    return run(parser.parse_args(argv))
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 ``create_app`` is the composition root. Its lifespan reads the index once,
 opens one HTTP client for every outbound call and closes it at shutdown;
 the endpoints only read what it put in ``app.state``. Run it with
-``python -m edgar_rag.service.app``.
+``edgar-rag serve``.
 """
 
 import dataclasses
@@ -261,7 +261,3 @@ def serve(
     config = settings if settings is not None else ServiceSettings()
     write_to_stderr()
     run(create_app(config), host=config.host, port=config.port)
-
-
-if __name__ == "__main__":
-    serve()

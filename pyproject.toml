@@ -15,6 +15,9 @@ dependencies = [
     "uvicorn>=0.30",
 ]
 
+[project.scripts]
+edgar-rag = "edgar_rag.cli:main"
+
 [dependency-groups]
 dev = [
     "import-linter>=2.1",

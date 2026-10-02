@@ -49,7 +49,7 @@ class FilingIndex:
         vectors_path = directory / VECTORS_FILE
         chunks_path = directory / CHUNKS_FILE
         if not vectors_path.exists() or not chunks_path.exists():
-            raise FileNotFoundError(f"no index in {directory}; run scripts/ingest.py first")
+            raise FileNotFoundError(f"no index in {directory}; run `edgar-rag ingest` first")
 
         payload = json.loads(chunks_path.read_text(encoding="utf-8"))
         chunks = tuple(Chunk(**chunk) for chunk in payload["chunks"])
