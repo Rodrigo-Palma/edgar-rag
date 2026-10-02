@@ -1,6 +1,6 @@
 # 0003. Lower-case embedding input to work around ollama#15609
 
-- Status: Accepted (retroactive, decided in `7b0d9ae` on 2026-09-26)
+- Status: Accepted (retroactive, decided in `7b0d9ae` on 2026-09-26); amended by [0004](0004-index-format-shard-per-filing.md)
 - Date: 2026-10-01
 
 ## Context
@@ -42,6 +42,8 @@ fixes the tokenizer.
   without error and returns plausible but meaningless scores. Recording an
   embedding fingerprint (model, lowercase, dimension) in the index and refusing
   to serve on a mismatch is the planned fix, in the index format ADR.
+  Done in [ADR-0004](0004-index-format-shard-per-filing.md): the manifest
+  records the fingerprint and the load refuses a mismatch.
 - Revisit when ollama#15609 is closed: turn the flag off, re-index, and keep it
   off only if the evaluation does not get worse.
 
@@ -49,5 +51,4 @@ fixes the tokenizer.
 
 - [`test_passages_are_lower_cased_before_they_are_sent`](../../tests/test_models.py): the request body carries lower-cased text by default.
 - [`test_lowercasing_can_be_turned_off_when_the_tokenizer_is_fixed`](../../tests/test_models.py): the escape hatch sends text as written.
-- Not yet enforced: index and query agreeing on the flag. No test can fail on a
-  mismatch until the fingerprint exists.
+- [`test_an_index_built_by_another_embedder_is_refused`](../../tests/test_corpus_index.py) and [`test_the_service_refuses_to_start_on_an_index_from_another_embedder`](../../tests/test_api.py): index and query agree on the flag, since the fingerprint of [ADR-0004](0004-index-format-shard-per-filing.md) records it.
