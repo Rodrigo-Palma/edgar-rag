@@ -28,9 +28,9 @@ from edgar_rag import __version__
 from edgar_rag.answer import Answerer
 from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import DEFAULT_TOP_K, AbstentionReason, Answer, Generator, RelevanceGate
-from edgar_rag.embeddings import ModelError, OllamaEmbedder, OllamaGenerator, OllamaProbe
 from edgar_rag.gate import BrierGate, CosineGate, GateError
 from edgar_rag.index import FilingIndex
+from edgar_rag.models import ModelError, OllamaEmbedder, OllamaGenerator, OllamaProbe
 from edgar_rag.telemetry import StageTimer, log_request, write_to_stderr
 
 logger = logging.getLogger(__name__)

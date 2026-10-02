@@ -8,9 +8,9 @@ from fastapi.testclient import TestClient
 
 from edgar_rag.api import build_gate, create_app, serve
 from edgar_rag.config import ServiceSettings
-from edgar_rag.embeddings import ModelError
 from edgar_rag.gate import BrierGate, CosineGate, GateError
 from edgar_rag.index import FilingIndex
+from edgar_rag.models import ModelError
 from tests.fakes import ON_TOPIC, fake_answerer
 
 

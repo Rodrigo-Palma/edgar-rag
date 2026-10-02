@@ -11,8 +11,8 @@ from edgar_rag.chunking import chunk_sections
 from edgar_rag.config import IngestSettings
 from edgar_rag.edgar.client import EdgarError, fetch_latest_filing
 from edgar_rag.edgar.parse import html_to_text, split_into_sections
-from edgar_rag.embeddings import ModelError, OllamaEmbedder
 from edgar_rag.index import build_index
+from edgar_rag.models import ModelError, OllamaEmbedder
 
 EMBED_BATCH_SIZE = 32
 

@@ -73,7 +73,7 @@ source_modules = [
     "edgar_rag.chunking",
     "edgar_rag.config",
     "edgar_rag.edgar",
-    "edgar_rag.embeddings",
+    "edgar_rag.models",
     "edgar_rag.gate",
     "edgar_rag.index",
     "edgar_rag.telemetry",
@@ -87,7 +87,7 @@ source_modules = [
     "edgar_rag.answer",
     "edgar_rag.chunking",
     "edgar_rag.edgar",
-    "edgar_rag.embeddings",
+    "edgar_rag.models",
     "edgar_rag.gate",
     "edgar_rag.index",
     "edgar_rag.telemetry",
@@ -102,7 +102,7 @@ forbidden_modules = [
     "edgar_rag.answer",
     "edgar_rag.chunking",
     "edgar_rag.edgar",
-    "edgar_rag.embeddings",
+    "edgar_rag.models",
     "edgar_rag.eval",
     "edgar_rag.gate",
     "edgar_rag.index",
@@ -114,7 +114,7 @@ type = "forbidden"
 source_modules = [
     "edgar_rag.chunking",
     "edgar_rag.edgar",
-    "edgar_rag.embeddings",
+    "edgar_rag.models",
     "edgar_rag.gate",
     "edgar_rag.index",
 ]
@@ -126,7 +126,7 @@ type = "forbidden"
 source_modules = ["edgar_rag.edgar"]
 forbidden_modules = [
     "edgar_rag.chunking",
-    "edgar_rag.embeddings",
+    "edgar_rag.models",
     "edgar_rag.gate",
     "edgar_rag.index",
 ]
@@ -146,7 +146,7 @@ forbidden_modules = [
     "edgar_rag.chunking",
     "edgar_rag.config",
     "edgar_rag.edgar",
-    "edgar_rag.embeddings",
+    "edgar_rag.models",
     "edgar_rag.gate",
     "edgar_rag.index",
 ]

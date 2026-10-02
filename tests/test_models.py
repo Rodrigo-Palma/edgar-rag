@@ -2,8 +2,8 @@ import httpx
 import numpy as np
 import pytest
 
-from edgar_rag import embeddings
-from edgar_rag.embeddings import ModelError, OllamaEmbedder, OllamaGenerator, OllamaProbe
+from edgar_rag import models
+from edgar_rag.models import ModelError, OllamaEmbedder, OllamaGenerator, OllamaProbe
 
 
 def _reply(monkeypatch, payload: dict) -> list[dict]:
@@ -14,7 +14,7 @@ def _reply(monkeypatch, payload: dict) -> list[dict]:
         sent.append({"url": url, "json": json})
         return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(embeddings.httpx, "post", fake_post)
+    monkeypatch.setattr(models.httpx, "post", fake_post)
     return sent
 
 
@@ -61,7 +61,7 @@ def test_a_server_that_is_not_running_is_reported_with_its_url(monkeypatch):
     def fake_post(url, json, timeout):
         raise httpx.ConnectError("connection refused")
 
-    monkeypatch.setattr(embeddings.httpx, "post", fake_post)
+    monkeypatch.setattr(models.httpx, "post", fake_post)
 
     with pytest.raises(ModelError, match="api/embed did not answer"):
         OllamaEmbedder("http://localhost:11434", "nomic").embed(("a",))
@@ -90,7 +90,7 @@ def _raw_reply(monkeypatch, content: bytes) -> None:
     def fake_post(url, json, timeout):
         return httpx.Response(200, content=content, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(embeddings.httpx, "post", fake_post)
+    monkeypatch.setattr(models.httpx, "post", fake_post)
 
 
 NOT_A_JSON_OBJECT = {
@@ -153,7 +153,7 @@ def _no_module_post(monkeypatch) -> None:
     def refuse(*args, **kwargs):
         raise AssertionError("the module-level httpx.post was used instead of the client")
 
-    monkeypatch.setattr(embeddings.httpx, "post", refuse)
+    monkeypatch.setattr(models.httpx, "post", refuse)
 
 
 def test_an_embedder_given_a_client_sends_through_it(monkeypatch):

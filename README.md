@@ -258,9 +258,12 @@ default. Both are needed before it listens anywhere else.
 |---|---|
 | `src/edgar_rag/edgar/` | EDGAR client and the 10-K parser |
 | `src/edgar_rag/chunking.py` | sections into passages, cut on sentence boundaries |
-| `src/edgar_rag/embeddings.py` | Ollama embedding and generation, lower-cased |
+| `src/edgar_rag/models.py` | Ollama embedding and generation, lower-cased |
 | `src/edgar_rag/index.py` | vector index, cosine search, disk format |
 | `src/edgar_rag/gate.py` | the relevance gate: cosine, model, and the fallback |
+| `src/edgar_rag/domain.py` | the values the pipeline passes around, and its ports |
+| `src/edgar_rag/prompt.py` | the generation prompt and the untrusted-text guard |
+| `src/edgar_rag/citations.py` | which passages an answer cites, and the quote shown |
 | `src/edgar_rag/answer.py` | prompt, citation checking, abstention |
 | `src/edgar_rag/api.py` | the service: composition at startup, limits, error mapping |
 | `src/edgar_rag/telemetry.py` | per-stage timing and the one JSON line per request |

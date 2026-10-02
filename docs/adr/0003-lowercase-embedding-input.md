@@ -22,7 +22,7 @@ mostly through proper nouns, so this discards the most informative tokens.
 
 ## Decision
 
-`OllamaEmbedder` in `src/edgar_rag/embeddings.py` lower-cases every text before
+`OllamaEmbedder` in `src/edgar_rag/models.py` lower-cases every text before
 sending it, by default. The flag is fixed at construction (`lowercase=True`) and
 applies to every call, so passages at ingest time and questions at query time go
 through the same transformation. `lowercase=False` exists for the day upstream
@@ -47,7 +47,7 @@ fixes the tokenizer.
 
 ## Enforced by
 
-- [`test_passages_are_lower_cased_before_they_are_sent`](../../tests/test_embeddings.py): the request body carries lower-cased text by default.
-- [`test_lowercasing_can_be_turned_off_when_the_tokenizer_is_fixed`](../../tests/test_embeddings.py): the escape hatch sends text as written.
+- [`test_passages_are_lower_cased_before_they_are_sent`](../../tests/test_models.py): the request body carries lower-cased text by default.
+- [`test_lowercasing_can_be_turned_off_when_the_tokenizer_is_fixed`](../../tests/test_models.py): the escape hatch sends text as written.
 - Not yet enforced: index and query agreeing on the flag. No test can fail on a
   mismatch until the fingerprint exists.

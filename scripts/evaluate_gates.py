@@ -11,9 +11,9 @@ from dataclasses import dataclass
 
 from edgar_rag.config import EvalSettings
 from edgar_rag.domain import DEFAULT_TOP_K
-from edgar_rag.embeddings import OllamaEmbedder
 from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
 from edgar_rag.index import FilingIndex
+from edgar_rag.models import OllamaEmbedder
 
 
 @dataclass(frozen=True, slots=True)
