@@ -7,21 +7,49 @@ breaks when pytest's rootdir or import mode changes. Fixtures stay in
 """
 
 from collections.abc import Sequence
+from datetime import date
 
 import numpy as np
 from numpy.typing import NDArray
 
 from edgar_rag.answer import Answerer
 from edgar_rag.domain import (
+    Chunk,
     Embedder,
+    EmbedderSpec,
     GateDecision,
     Generation,
     Generator,
+    IndexedFiling,
     RelevanceGate,
+    Scope,
     ScoredChunk,
 )
 from edgar_rag.gate import CosineGate
-from edgar_rag.index import FilingIndex
+from edgar_rag.index import CorpusIndex, build_shard
+
+# The embedder the service expects by default, so an index a test saves loads
+# in a service built from default settings.
+SPEC = EmbedderSpec(model="nomic-embed-text", lowercase=True)
+CIK = 42
+EXAMPLE = IndexedFiling(
+    accession="0000000042-24-000001",
+    cik=CIK,
+    fiscal_year=2024,
+    form="10-K",
+    company="Example Inc",
+    filing_date=date(2024, 11, 1),
+    url="https://www.sec.gov/Archives/edgar/data/42/000000004224000001/example-20240928.htm",
+)
+SCOPE = Scope(cik=CIK)
+
+
+def one_filing_index(
+    chunks: Sequence[Chunk], vectors: Sequence[Sequence[float]], filing: IndexedFiling = EXAMPLE
+) -> CorpusIndex:
+    """An index of a single filing, ``EXAMPLE`` unless told otherwise."""
+    shard = build_shard(filing, chunks, np.asarray(vectors, dtype=np.float32))
+    return CorpusIndex.of(SPEC, (shard,))
 
 
 class FakeEmbedder:
@@ -111,7 +139,7 @@ CITED_REPLY = "The Company designs phones [1]."
 
 
 def fake_answerer(
-    index: FilingIndex,
+    index: CorpusIndex,
     *,
     embedder: Embedder | None = None,
     generator: Generator | None = None,

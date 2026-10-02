@@ -1,6 +1,8 @@
+import json
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -9,10 +11,10 @@ from fastapi.testclient import TestClient
 from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import Generation
 from edgar_rag.gate import BrierGate, CosineGate, GateError
-from edgar_rag.index import FilingIndex
+from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import ModelError
 from edgar_rag.service.app import build_gate, create_app, serve
-from tests.fakes import ON_TOPIC, fake_answerer
+from tests.fakes import CIK, EXAMPLE, ON_TOPIC, SPEC, fake_answerer
 
 
 def _settings(**overrides) -> ServiceSettings:
@@ -35,7 +37,7 @@ def client(index) -> Iterator[TestClient]:
 
 
 def test_ask_returns_the_answer_its_citations_and_the_filing(client):
-    response = client.post("/ask", json={"question": ON_TOPIC, "top_k": 2})
+    response = client.post("/ask", json={"cik": CIK, "question": ON_TOPIC, "top_k": 2})
 
     assert response.status_code == 200
     body = response.json()
@@ -46,17 +48,19 @@ def test_ask_returns_the_answer_its_citations_and_the_filing(client):
 
 
 def test_ask_rejects_a_question_that_is_too_short(client):
-    assert client.post("/ask", json={"question": "hi"}).status_code == 422
+    assert client.post("/ask", json={"cik": CIK, "question": "hi"}).status_code == 422
 
 
 def test_ask_rejects_a_top_k_outside_the_allowed_range(client):
-    assert client.post("/ask", json={"question": ON_TOPIC, "top_k": 99}).status_code == 422
+    assert (
+        client.post("/ask", json={"cik": CIK, "question": ON_TOPIC, "top_k": 99}).status_code == 422
+    )
 
 
 @pytest.mark.parametrize("question", ["   ", "\t\n  \n", "  hi  "])
 def test_ask_rejects_a_question_that_is_blank_once_trimmed(client, question):
     """Whitespace passed the length check and reached the core as a 500."""
-    assert client.post("/ask", json={"question": question}).status_code == 422
+    assert client.post("/ask", json={"cik": CIK, "question": question}).status_code == 422
 
 
 def test_a_value_error_from_the_core_is_a_client_error_not_a_crash(index):
@@ -65,7 +69,7 @@ def test_a_value_error_from_the_core_is_a_client_error_not_a_crash(index):
             raise ValueError("nothing to embed")
 
     with _serving(index, embedder=RefusingEmbedder()) as client:
-        response = client.post("/ask", json={"question": ON_TOPIC})
+        response = client.post("/ask", json={"cik": CIK, "question": ON_TOPIC})
 
     assert response.status_code == 422
     assert "nothing to embed" not in response.json()["detail"]
@@ -74,25 +78,48 @@ def test_a_value_error_from_the_core_is_a_client_error_not_a_crash(index):
 @pytest.mark.parametrize(
     "body",
     [
-        {"question": "x" * 501},
-        {"question": ON_TOPIC, "top_k": 0},
-        {"question": ON_TOPIC, "top_k": 11},
+        {"cik": CIK, "question": "x" * 501},
+        {"cik": CIK, "question": ON_TOPIC, "top_k": 0},
+        {"cik": CIK, "question": ON_TOPIC, "top_k": 11},
+        {"question": ON_TOPIC},
+        {"cik": 0, "question": ON_TOPIC},
+        {"cik": 10_000_000_000, "question": ON_TOPIC},
+        {"cik": "Apple", "question": ON_TOPIC},
+        {"cik": CIK, "fiscal_year": 1992, "question": ON_TOPIC},
+        {"cik": CIK, "fiscal_year": 2101, "question": ON_TOPIC},
     ],
-    ids=["question-501-chars", "top_k-0", "top_k-11"],
+    ids=[
+        "question-501-chars",
+        "top_k-0",
+        "top_k-11",
+        "no-cik",
+        "cik-0",
+        "cik-11-digits",
+        "cik-not-a-number",
+        "year-before-edgar",
+        "year-2101",
+    ],
 )
 def test_ask_rejects_inputs_just_outside_the_limits(client, body):
     assert client.post("/ask", json=body).status_code == 422
 
 
 def _assert_no_topology(text: str) -> None:
-    """Nothing a client could use to map the machines behind the service."""
+    """Nothing a client could use to map the machines behind the service.
+
+    The filing's own address on EDGAR is public and meant to be returned, so
+    ``source`` is left out of the search.
+    """
+    body = json.loads(text)
+    body.pop("source", None)
+    shown = json.dumps(body)
     for leak in ("http://", "https://", "localhost", "11434", "8100", "Error"):
-        assert leak not in text, f"{leak!r} leaked into {text!r}"
+        assert leak not in shown, f"{leak!r} leaked into {shown!r}"
 
 
 def _ask_with(index, **collaborators) -> httpx.Response:
     with _serving(index, **collaborators) as client:
-        return client.post("/ask", json={"question": ON_TOPIC, "top_k": 2})
+        return client.post("/ask", json={"cik": CIK, "question": ON_TOPIC, "top_k": 2})
 
 
 def test_ask_reports_a_model_failure_as_a_bad_gateway_without_its_url(index, caplog):
@@ -185,7 +212,14 @@ def test_health_says_which_filing_is_indexed(index, tmp_path):
 
     assert body["status"] == "ready"
     assert body["chunks"] == 2
-    assert body["indexed_filing"] == {"company": "Example Inc"}
+    assert body["filings"] == [
+        {
+            "cik": EXAMPLE.cik,
+            "fiscal_year": EXAMPLE.fiscal_year,
+            "accession": EXAMPLE.accession,
+            "company": "Example Inc",
+        }
+    ]
     assert body["ollama_reachable"] is True
 
 
@@ -197,6 +231,7 @@ def test_health_carries_the_fingerprint_of_the_loaded_index(index, tmp_path):
         fingerprint = client.get("/health").json()["fingerprint"]
 
     assert fingerprint["embedding_model"] == "nomic-embed-text"
+    assert fingerprint["lowercase"] is True
     assert fingerprint["dimensions"] == 2
     assert len(fingerprint["digest"]) == 16
 
@@ -204,7 +239,9 @@ def test_health_carries_the_fingerprint_of_the_loaded_index(index, tmp_path):
 def test_the_fingerprint_changes_with_the_vectors(index, tmp_path):
     first, second = tmp_path / "first", tmp_path / "second"
     index.save(first)
-    FilingIndex(index.source, index.chunks, index.vectors[::-1].copy()).save(second)
+    [shard] = index.shards
+    swapped = replace(shard, vectors=shard.vectors[::-1].copy())
+    CorpusIndex.of(SPEC, (swapped,)).save(second)
 
     def digest(directory) -> str:
         app = create_app(_settings(index_dir=directory), transport=_ollama_answering(200))
@@ -241,14 +278,86 @@ def test_health_reports_a_missing_index_instead_of_failing(tmp_path):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "no index"
-    assert body["indexed_filing"] is None
+    assert body["filings"] == []
     assert body["chunks"] == 0
     assert body["fingerprint"] is None
 
 
+def _start(app) -> None:
+    """Run the lifespan, where the index is loaded, and shut down again."""
+    with TestClient(app):
+        pass
+
+
+@pytest.mark.parametrize(
+    "embedding_model", ["mxbai-embed-large", "nomic-embed-text:v1.5"], ids=["model", "tag"]
+)
+def test_the_service_refuses_to_start_on_an_index_from_another_embedder(
+    index, tmp_path, embedding_model
+):
+    """Questions embedded by another model would search the index and return noise."""
+    index.save(tmp_path)
+    app = create_app(
+        _settings(index_dir=tmp_path, embedding_model=embedding_model),
+        transport=_ollama_answering(200),
+    )
+
+    with pytest.raises(IndexFormatError, match="was built with nomic-embed-text"):
+        _start(app)
+
+
+def test_the_service_refuses_to_start_on_a_shard_that_changed(index, tmp_path):
+    index.save(tmp_path)
+    (tmp_path / EXAMPLE.accession / "chunks.json").write_text("[]")
+    app = create_app(_settings(index_dir=tmp_path), transport=_ollama_answering(200))
+
+    with pytest.raises(IndexFormatError, match="SHA-256"):
+        _start(app)
+
+
+def test_the_service_refuses_to_start_on_a_single_filing_index(tmp_path):
+    (tmp_path / "vectors.npy").write_bytes(b"")
+    (tmp_path / "chunks.json").write_text("{}")
+    app = create_app(_settings(index_dir=tmp_path), transport=_ollama_answering(200))
+
+    with pytest.raises(IndexFormatError, match="format 1"):
+        _start(app)
+
+
+def test_a_question_about_a_company_not_indexed_abstains_as_out_of_scope(client):
+    response = client.post("/ask", json={"cik": CIK + 1, "question": ON_TOPIC})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["abstained"] is True
+    assert body["reason"] == "out_of_scope"
+    assert body["source"] is None
+    assert body["text"] is None
+
+
+def test_a_question_about_a_year_not_indexed_abstains_as_out_of_scope(client):
+    body = client.post("/ask", json={"cik": CIK, "fiscal_year": 2019, "question": ON_TOPIC}).json()
+
+    assert body["reason"] == "out_of_scope"
+
+
+def test_the_response_names_the_filing_the_scope_resolved_to(client):
+    body = client.post("/ask", json={"cik": CIK, "fiscal_year": 2024, "question": ON_TOPIC}).json()
+
+    assert body["source"] == {
+        "company": "Example Inc",
+        "cik": CIK,
+        "fiscal_year": 2024,
+        "accession": EXAMPLE.accession,
+        "form": "10-K",
+        "filing_date": "2024-11-01",
+        "url": EXAMPLE.url,
+    }
+
+
 def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):
     with TestClient(create_app(_settings(index_dir=tmp_path))) as client:
-        response = client.post("/ask", json={"question": ON_TOPIC})
+        response = client.post("/ask", json={"cik": CIK, "question": ON_TOPIC})
 
     assert response.status_code == 503
     assert "ingest" in response.json()["detail"]
@@ -308,7 +417,7 @@ def test_a_brier_outage_answered_by_cosine_reaches_the_client_as_degraded(index)
 
 
 def test_a_healthy_answer_carries_every_field_of_the_contract(client):
-    body = client.post("/ask", json={"question": ON_TOPIC, "top_k": 2}).json()
+    body = client.post("/ask", json={"cik": CIK, "question": ON_TOPIC, "top_k": 2}).json()
 
     assert set(body) == {
         "question",

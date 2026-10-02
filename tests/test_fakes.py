@@ -3,7 +3,7 @@
 import pytest
 
 from edgar_rag.answer import Answerer
-from tests.fakes import FakeEmbedder, FakeGate, FakeGenerator, FixedNonce
+from tests.fakes import SCOPE, FakeEmbedder, FakeGate, FakeGenerator, FixedNonce
 
 QUESTION = "what does the company design?"
 
@@ -13,7 +13,7 @@ def test_a_rejecting_gate_is_asked_once_and_the_generator_never(index):
     generator = FakeGenerator("unused [1]")
 
     answer = Answerer(index, FakeEmbedder({QUESTION: [1.0, 0.0]}), generator, gate).ask(
-        QUESTION, top_k=2
+        QUESTION, SCOPE, top_k=2
     )
 
     assert answer.abstained is True
@@ -26,7 +26,7 @@ def test_an_admitting_gate_lets_the_generator_run(index):
 
     answer = Answerer(
         index, FakeEmbedder({QUESTION: [1.0, 0.0]}), generator, FakeGate.admitting()
-    ).ask(QUESTION, top_k=2)
+    ).ask(QUESTION, SCOPE, top_k=2)
 
     assert answer.abstained is False
     assert len(generator.prompts) == 1

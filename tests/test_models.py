@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from edgar_rag import models
+from edgar_rag.domain import EmbedderSpec
 from edgar_rag.models import ModelError, OllamaEmbedder, OllamaGenerator, OllamaProbe
 
 
@@ -34,6 +35,20 @@ def test_embedder_refuses_a_short_reply_instead_of_misaligning_chunks(monkeypatc
 
     with pytest.raises(ModelError, match="1 of 2 vectors"):
         OllamaEmbedder("http://localhost:11434", "nomic").embed(("a", "b"))
+
+
+def test_embedder_refuses_vectors_of_another_size_than_the_index(monkeypatch):
+    """A model swapped behind the same name fails as a model error, not in the search."""
+    _reply(monkeypatch, {"embeddings": [[1.0, 0.0, 0.0]]})
+    embedder = OllamaEmbedder("http://localhost:11434", "nomic", dimensions=768)
+
+    with pytest.raises(ModelError, match="3-dimension vectors, and the index holds 768"):
+        embedder.embed(("a",))
+
+
+def test_embedder_states_the_spec_an_index_records():
+    assert OllamaEmbedder("http://localhost:11434", "nomic").spec == EmbedderSpec("nomic", True)
+    assert OllamaEmbedder("http://x", "nomic", lowercase=False).spec.lowercase is False
 
 
 def test_embedding_nothing_is_a_caller_error(monkeypatch):

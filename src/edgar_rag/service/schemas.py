@@ -5,11 +5,17 @@
 """
 
 from dataclasses import fields
+from datetime import date
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from edgar_rag.domain import DEFAULT_TOP_K, AbstentionReason, Answer
+from edgar_rag.domain import DEFAULT_TOP_K, AbstentionReason, Answer, Scope
+
+MAX_CIK = 9_999_999_999
+# EDGAR holds no electronic filing before 1993, so no earlier year can be indexed.
+FIRST_FISCAL_YEAR = 1993
+LAST_FISCAL_YEAR = 2100
 
 # What answering cost is for the operator: it goes to the request log, not to
 # a client that could use the timings to probe the service.
@@ -20,7 +26,17 @@ class AskRequest(BaseModel):
     # Trimmed before the length check, so a question of only whitespace is
     # rejected here instead of reaching the core.
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
+    cik: int = Field(ge=1, le=MAX_CIK, description="The company's CIK: 320193 for Apple.")
+    fiscal_year: int | None = Field(
+        default=None,
+        ge=FIRST_FISCAL_YEAR,
+        le=LAST_FISCAL_YEAR,
+        description="The fiscal year of the filing; the latest one indexed when left out.",
+    )
     top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=10)
+
+    def scope(self) -> Scope:
+        return Scope(cik=self.cik, fiscal_year=self.fiscal_year)
 
 
 class CitationResponse(BaseModel):
@@ -31,6 +47,18 @@ class CitationResponse(BaseModel):
     title: str
     quote: str = Field(description="The window of the passage around what the question asks.")
     score: float = Field(description="Cosine similarity of the passage to the question.")
+
+
+class SourceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    company: str
+    cik: int
+    fiscal_year: int
+    accession: str
+    form: str
+    filing_date: date
+    url: str = Field(description="The filing's primary document on EDGAR.")
 
 
 class AskResponse(BaseModel):
@@ -56,14 +84,16 @@ class AskResponse(BaseModel):
     degraded: bool = Field(
         description="The gate decided on part of its evidence or on its fallback."
     )
-    source: dict[str, str] = Field(description="The filing the passages come from.")
+    source: SourceResponse | None = Field(
+        description="The filing the passages come from; null when no indexed filing matches."
+    )
 
     @classmethod
-    def of(cls, answer: Answer, source: dict[str, str]) -> "AskResponse":
+    def of(cls, answer: Answer) -> "AskResponse":
         returned = {
             field.name: getattr(answer, field.name)
             for field in fields(answer)
             if field.name not in NOT_RETURNED
         }
-        # from_attributes reads each Citation dataclass as a CitationResponse
-        return cls.model_validate({**returned, "source": source}, from_attributes=True)
+        # from_attributes reads the Citation and IndexedFiling dataclasses as models
+        return cls.model_validate(returned, from_attributes=True)

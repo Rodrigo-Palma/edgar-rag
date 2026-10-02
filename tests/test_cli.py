@@ -5,9 +5,11 @@ import pytest
 
 from edgar_rag import cli
 from edgar_rag.config import ServiceSettings
-from edgar_rag.index import FilingIndex
+from edgar_rag.domain import EmbedderSpec
+from edgar_rag.index import CorpusIndex
 
 USER_AGENT = "Test Runner tests@ledgerworks.io"
+SPEC = EmbedderSpec(model="nomic-embed-text", lowercase=True)
 SUBMISSIONS = {
     "name": "Apple Inc.",
     "filings": {
@@ -33,7 +35,12 @@ FILING_HTML = """
 def isolated_env(monkeypatch, tmp_path):
     """No .env from the working tree and no variable from the shell."""
     monkeypatch.chdir(tmp_path)
-    for name in ("EDGAR_RAG_EDGAR_USER_AGENT", "EDGAR_RAG_INDEX_DIR", "EDGAR_RAG_PORT"):
+    for name in (
+        "EDGAR_RAG_EDGAR_USER_AGENT",
+        "EDGAR_RAG_INDEX_DIR",
+        "EDGAR_RAG_PORT",
+        "EDGAR_RAG_EMBEDDING_MODEL",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -97,13 +104,14 @@ def test_ingest_downloads_embeds_and_saves_the_latest_filing(monkeypatch, tmp_pa
     code = cli.main(["ingest", "--cik", "320193"], transport=transport)
 
     assert code == 0
-    index = FilingIndex.load(tmp_path / "index")
-    assert index.source["company"] == "Apple Inc."
-    assert len(index.chunks) > 2
+    index = CorpusIndex.load(tmp_path / "index", SPEC)
+    [filing] = index.filings
+    assert (filing.company, filing.cik, filing.fiscal_year) == ("Apple Inc.", 320193, 2024)
+    assert index.chunk_count > 2
     assert seen[0] == "https://data.sec.gov/submissions/CIK0000320193.json"
     out = capsys.readouterr().out
-    assert "Apple Inc. 10-K 2024-11-01" in out
-    assert f"{len(index.chunks)} chunks" in out
+    assert "Apple Inc. 10-K 2024-11-01, fiscal 2024" in out
+    assert f"{index.chunk_count} chunks" in out
 
 
 def test_ingest_without_a_declared_sender_stops_before_any_request(capsys):
@@ -136,6 +144,35 @@ def test_ingest_reports_an_embedding_failure_and_writes_no_index(monkeypatch, tm
     assert code == 1
     assert capsys.readouterr().err.startswith("embedding:")
     assert not (tmp_path / "index").exists()
+
+
+def test_ingest_adds_to_the_index_dir_given_on_the_command_line(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("EDGAR_RAG_EDGAR_USER_AGENT", USER_AGENT)
+    monkeypatch.setenv("EDGAR_RAG_INDEX_DIR", str(tmp_path / "from-env"))
+    transport, _ = _fake_sec_and_ollama()
+    chosen = tmp_path / "chosen"
+
+    first = cli.main(["ingest", "--cik", "320193", "--index-dir", str(chosen)], transport=transport)
+    again = cli.main(["ingest", "--cik", "320193", "--index-dir", str(chosen)], transport=transport)
+
+    assert (first, again) == (0, 0)
+    assert len(CorpusIndex.load(chosen, SPEC).filings) == 1
+    assert not (tmp_path / "from-env").exists()
+    assert f"0000320193-24-000123 added to the index in {chosen}" in capsys.readouterr().out
+
+
+def test_ingest_refuses_to_add_to_an_index_of_another_embedder(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("EDGAR_RAG_EDGAR_USER_AGENT", USER_AGENT)
+    monkeypatch.setenv("EDGAR_RAG_INDEX_DIR", str(tmp_path / "index"))
+    monkeypatch.setenv("EDGAR_RAG_EMBEDDING_MODEL", "mxbai-embed-large")
+    transport, _ = _fake_sec_and_ollama()
+    assert cli.main(["ingest", "--cik", "320193"], transport=transport) == 0
+    monkeypatch.delenv("EDGAR_RAG_EMBEDDING_MODEL")
+
+    code = cli.main(["ingest", "--cik", "320193"], transport=transport)
+
+    assert code == 1
+    assert capsys.readouterr().err.startswith("index: the index in")
 
 
 def test_serve_runs_the_service_with_the_settings_from_the_environment(monkeypatch):

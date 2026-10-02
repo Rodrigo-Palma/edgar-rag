@@ -10,10 +10,13 @@ import argparse
 from dataclasses import dataclass
 
 from edgar_rag.config import EvalSettings
-from edgar_rag.domain import DEFAULT_TOP_K
+from edgar_rag.domain import DEFAULT_TOP_K, Scope
 from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
-from edgar_rag.index import FilingIndex
+from edgar_rag.index import CorpusIndex
 from edgar_rag.models import OllamaEmbedder
+
+# The cases below were written for Apple's latest 10-K.
+SCOPE = Scope(cik=320193)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,11 +77,11 @@ class Score:
         return self.admitted_unanswerable / self.total_unanswerable
 
 
-def run(gate: RelevanceGate, name: str, index: FilingIndex, embedder) -> Score:
+def run(gate: RelevanceGate, name: str, index: CorpusIndex, embedder) -> Score:
     admitted = {True: 0, False: 0}
     print(f"\n{name}")
     for case in CASES:
-        passages = index.search(embedder.embed((case.question,)), top_k=DEFAULT_TOP_K)
+        passages = index.search(embedder.embed((case.question,)), SCOPE, top_k=DEFAULT_TOP_K)
         try:
             decision = gate.admits(case.question, passages)
         except GateError as error:
@@ -125,9 +128,13 @@ def main() -> int:
     arguments = parser.parse_args()
 
     settings = EvalSettings()
-    index = FilingIndex.load(settings.index_dir)
     embedder = OllamaEmbedder(str(settings.ollama_base_url), settings.embedding_model)
-    print(f"filing: {index.source['company']} {index.source['form']}, {len(index.chunks)} chunks")
+    index = CorpusIndex.load(settings.index_dir, embedder.spec)
+    filing = index.resolve(SCOPE)
+    if filing is None:
+        print(f"no filing indexed for {SCOPE}; run `edgar-rag ingest --cik {SCOPE.cik}`")
+        return 1
+    print(f"filing: {filing.company} {filing.form}, fiscal {filing.fiscal_year}")
 
     scores = [
         run(
@@ -158,13 +165,13 @@ def main() -> int:
     return 0
 
 
-def _sweeps(index: FilingIndex, embedder, arguments) -> None:
+def _sweeps(index: CorpusIndex, embedder, arguments) -> None:
     """Collect the raw score each gate assigns, then sweep both."""
     cosine_scores, brier_scores = {}, {}
     brier = BrierGate(arguments.brier_url, min_confidence=0.0)
 
     for case in CASES:
-        passages = index.search(embedder.embed((case.question,)), top_k=DEFAULT_TOP_K)
+        passages = index.search(embedder.embed((case.question,)), SCOPE, top_k=DEFAULT_TOP_K)
         cosine_scores[case.question] = passages[0].score if passages else 0.0
         try:
             best = max(

@@ -9,7 +9,7 @@ the reason was free prose a caller could only grep.
 from edgar_rag.answer import Answerer
 from edgar_rag.domain import AbstentionReason, GateDecision, abstained_message
 from edgar_rag.gate import CosineGate
-from tests.fakes import FakeEmbedder, FakeGate, FakeGenerator, FixedNonce
+from tests.fakes import SCOPE, FakeEmbedder, FakeGate, FakeGenerator, FixedNonce
 
 QUESTION = "what does the company design?"
 TABLE = {QUESTION: [1.0, 0.0]}
@@ -19,7 +19,7 @@ NONCE = "0badc0de"
 def _ask(index, gate, reply: str = "The Company designs phones [1]."):
     return Answerer(
         index, FakeEmbedder(TABLE), FakeGenerator(reply), gate, nonce=FixedNonce(NONCE)
-    ).ask(QUESTION, top_k=2)
+    ).ask(QUESTION, SCOPE, top_k=2)
 
 
 def test_a_gate_rejection_says_so_with_the_gate_score(index):

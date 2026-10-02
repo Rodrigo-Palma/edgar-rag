@@ -4,7 +4,7 @@ from edgar_rag.answer import Answerer
 from edgar_rag.domain import AbstentionReason, Chunk, ScoredChunk
 from edgar_rag.gate import CosineGate
 from edgar_rag.prompt import build_prompt
-from tests.fakes import FakeEmbedder, FakeGenerator, FixedNonce
+from tests.fakes import SCOPE, FakeEmbedder, FakeGenerator, FixedNonce
 
 ON_TOPIC = "what does the company design?"
 OFF_TOPIC = "who won the league in 1998?"
@@ -15,7 +15,9 @@ def test_cites_only_the_passages_the_answer_pointed_at(index):
     """Returning all of top_k made "cites the passage it used" untrue."""
     generator = FakeGenerator("The Company designs phones [1].")
 
-    answer = Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(ON_TOPIC, top_k=2)
+    answer = Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(
+        ON_TOPIC, SCOPE, top_k=2
+    )
 
     assert answer.abstained is False
     assert answer.text == "The Company designs phones [1]."
@@ -27,7 +29,9 @@ def test_cites_only_the_passages_the_answer_pointed_at(index):
 def test_two_markers_bring_two_citations(index):
     generator = FakeGenerator("Phones [1], and supply chains may fail [2].")
 
-    answer = Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(ON_TOPIC, top_k=2)
+    answer = Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(
+        ON_TOPIC, SCOPE, top_k=2
+    )
 
     assert [citation.marker for citation in answer.citations] == [1, 2]
 
@@ -36,7 +40,9 @@ def test_an_answer_that_cites_nothing_is_an_abstention(index):
     """It cannot be checked, which is the failure this service exists to avoid."""
     generator = FakeGenerator("The company designs phones.")
 
-    answer = Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(ON_TOPIC, top_k=2)
+    answer = Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(
+        ON_TOPIC, SCOPE, top_k=2
+    )
 
     assert answer.abstained is True
     assert answer.reason is AbstentionReason.NO_VALID_CITATION
@@ -46,7 +52,9 @@ def test_an_invented_marker_is_not_shown_as_a_source(index):
     """[7] with top_k=2 points at something that was never retrieved."""
     generator = FakeGenerator("Phones [1], and something else [7].")
 
-    answer = Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(ON_TOPIC, top_k=2)
+    answer = Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(
+        ON_TOPIC, SCOPE, top_k=2
+    )
 
     assert [citation.marker for citation in answer.citations] == [1]
 
@@ -57,7 +65,7 @@ def test_the_quote_carries_the_part_of_the_passage_the_question_is_about(index):
 
     answer = Answerer(
         index, FakeEmbedder({"what may fail?": [0.0, 1.0]}), generator, CosineGate(0.5)
-    ).ask("what may fail?", top_k=1)
+    ).ask("what may fail?", SCOPE, top_k=1)
 
     assert "fail" in answer.citations[0].quote
 
@@ -66,7 +74,7 @@ def test_abstains_before_generating_when_retrieval_is_weak(index):
     generator = FakeGenerator("something invented")
 
     answer = Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.9)).ask(
-        OFF_TOPIC, top_k=2
+        OFF_TOPIC, SCOPE, top_k=2
     )
 
     assert answer.abstained is True
@@ -83,7 +91,7 @@ def test_abstains_when_the_model_says_the_filing_does_not_cover_it(index):
 
     answer = Answerer(
         index, FakeEmbedder(TABLE), generator, CosineGate(0.5), nonce=FixedNonce("0badc0de")
-    ).ask(ON_TOPIC, top_k=2)
+    ).ask(ON_TOPIC, SCOPE, top_k=2)
 
     assert answer.abstained is True
     assert answer.citations == ()
@@ -94,7 +102,7 @@ def test_abstains_when_the_model_says_the_filing_does_not_cover_it(index):
 def test_the_prompt_carries_the_passages_the_answer_must_use(index):
     generator = FakeGenerator("answer [1]")
 
-    Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(ON_TOPIC, top_k=2)
+    Answerer(index, FakeEmbedder(TABLE), generator, CosineGate(0.5)).ask(ON_TOPIC, SCOPE, top_k=2)
 
     prompt = generator.prompts[0]
     assert "[1] (Item 1) The Company designs phones." in prompt
@@ -103,7 +111,7 @@ def test_the_prompt_carries_the_passages_the_answer_must_use(index):
 
 def test_rejects_an_empty_question(index):
     with pytest.raises(ValueError):
-        Answerer(index, FakeEmbedder(TABLE), FakeGenerator("x"), CosineGate(0.5)).ask("   ")
+        Answerer(index, FakeEmbedder(TABLE), FakeGenerator("x"), CosineGate(0.5)).ask("   ", SCOPE)
 
 
 def test_passage_text_cannot_fabricate_a_citation_or_force_a_refusal():

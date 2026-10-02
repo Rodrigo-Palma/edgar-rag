@@ -7,7 +7,6 @@ the endpoints only read what it put in ``app.state``. Run it with
 """
 
 import dataclasses
-import hashlib
 import logging
 import threading
 import time
@@ -25,10 +24,10 @@ from fastapi.responses import Response
 from edgar_rag import __version__
 from edgar_rag.answer import Answerer
 from edgar_rag.config import ServiceSettings
-from edgar_rag.domain import Answer, Generation, Generator, RelevanceGate
+from edgar_rag.domain import Answer, EmbedderSpec, Generation, Generator, RelevanceGate
 from edgar_rag.gate import BrierGate, CosineGate
-from edgar_rag.index import FilingIndex
-from edgar_rag.models import OllamaEmbedder, OllamaGenerator, OllamaProbe
+from edgar_rag.index import CorpusIndex, IndexFormatError
+from edgar_rag.models import LOWERCASE_INPUT, OllamaEmbedder, OllamaGenerator, OllamaProbe
 from edgar_rag.service.failures import (
     IndexUnavailable,
     RequestTimedOut,
@@ -40,9 +39,9 @@ from edgar_rag.telemetry import StageTimer, log_request, write_to_stderr
 
 logger = logging.getLogger(__name__)
 
-# The service answers from an index it loaded itself, and reports its size and
-# fingerprint, so it needs the concrete index behind the answerer.
-ServedAnswerer = Answerer[FilingIndex]
+# The service answers from an index it loaded itself, and reports its filings
+# and fingerprint, so it needs the concrete index behind the answerer.
+ServedAnswerer = Answerer[CorpusIndex]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -91,35 +90,52 @@ def build_answerer(settings: ServiceSettings, client: httpx.Client) -> ServedAns
 
     A missing index does not stop the service from starting: ``/health`` says
     so and ``/ask`` answers 503 until the ingest has run and it is restarted.
+    An index that is there but cannot be trusted does stop it: one built with
+    another embedding model, or that does not match its manifest, would load
+    and answer from the wrong passages without a single error.
+
+    Raises:
+        IndexFormatError: when the index is in another format, was built with
+            another embedder, or does not match its manifest.
     """
+    spec = EmbedderSpec(model=settings.embedding_model, lowercase=LOWERCASE_INPUT)
     try:
-        index = FilingIndex.load(settings.index_dir)
+        index = CorpusIndex.load(settings.index_dir, expect=spec)
     except FileNotFoundError as error:
         logger.warning("starting without an index: %s", error)
         return None
+    except IndexFormatError as error:
+        logger.error("refusing to start: %s", error)
+        raise
 
     ollama = str(settings.ollama_base_url)
+    embedder = OllamaEmbedder(
+        ollama,
+        spec.model,
+        lowercase=spec.lowercase,
+        dimensions=index.fingerprint.dimensions,
+        client=client,
+    )
     return Answerer(
         index=index,
-        embedder=OllamaEmbedder(ollama, settings.embedding_model, client=client),
+        embedder=embedder,
         generator=OllamaGenerator(ollama, settings.generation_model, client=client),
         gate=build_gate(settings, client),
     )
 
 
-def index_fingerprint(index: FilingIndex, embedding_model: str) -> dict[str, object]:
+def index_fingerprint(index: CorpusIndex) -> dict[str, object]:
     """What an operator needs to tell which index is being served.
 
-    The digest covers the vectors and the chunk ids, so a re-ingest that
-    changed either shows up as a different value.
+    The digest covers the vectors and the chunk ids of every filing, so a
+    re-ingest that changed either shows up as a different value.
     """
-    digest = hashlib.sha256(index.vectors.tobytes())
-    for chunk in index.chunks:
-        digest.update(chunk.chunk_id.encode("utf-8"))
+    fingerprint = index.fingerprint
     return {
-        "embedding_model": embedding_model,
-        "dimensions": int(index.vectors.shape[1]),
-        "digest": digest.hexdigest()[:16],
+        "embedding_model": fingerprint.model,
+        "lowercase": fingerprint.lowercase,
+        "dimensions": fingerprint.dimensions,
+        "digest": index.digest(),
     }
 
 
@@ -149,9 +165,7 @@ def create_app(
                 if built is None
                 else with_generation_limit(built, config.max_concurrent_generations)
             )
-            app.state.fingerprint = (
-                None if built is None else index_fingerprint(built.index, config.embedding_model)
-            )
+            app.state.fingerprint = None if built is None else index_fingerprint(built.index)
             app.state.ollama = OllamaProbe(str(config.ollama_base_url), client)
             yield
 
@@ -192,6 +206,7 @@ def _request_fields(request: Request, status: int, seconds: float) -> dict[str, 
         "seconds": round(seconds, 4),
         "stages": stages.seconds() if stages is not None else {},
         "top_k": getattr(request.state, "top_k", None),
+        "accession": answer.source.accession if answer and answer.source else None,
         "abstained": answer.abstained if answer else None,
         "reason": answer.reason if answer else None,
         "degraded": answer.degraded if answer else None,
@@ -215,14 +230,23 @@ router = APIRouter()
 
 @router.get("/health")
 def health(request: Request) -> dict[str, object]:
-    """The index loaded at startup, its fingerprint, and whether Ollama answers."""
+    """The filings indexed, the index's fingerprint, and whether Ollama answers."""
     state = request.app.state
     answerer: ServedAnswerer | None = state.answerer
     ollama: OllamaProbe = state.ollama
+    filings = answerer.index.filings if answerer is not None else ()
     return {
         "status": "ready" if answerer is not None else "no index",
-        "indexed_filing": answerer.source if answerer is not None else None,
-        "chunks": len(answerer.index.chunks) if answerer is not None else 0,
+        "filings": [
+            {
+                "cik": filing.cik,
+                "fiscal_year": filing.fiscal_year,
+                "accession": filing.accession,
+                "company": filing.company,
+            }
+            for filing in filings
+        ],
+        "chunks": answerer.index.chunk_count if answerer is not None else 0,
         "fingerprint": state.fingerprint,
         "ollama_reachable": ollama.reachable(),
     }
@@ -244,14 +268,16 @@ async def ask(
     budget = request.app.state.settings.request_timeout_seconds
     stages = StageTimer()
     request.state.stages, request.state.top_k = stages, question.top_k
-    work = partial(answerer.ask, question.question, top_k=question.top_k, stages=stages)
+    work = partial(
+        answerer.ask, question.question, question.scope(), top_k=question.top_k, stages=stages
+    )
     try:
         with anyio.fail_after(budget):
             answer = await anyio.to_thread.run_sync(work, abandon_on_cancel=True)
     except TimeoutError as error:
         raise RequestTimedOut(f"no answer within {budget} s") from error
     request.state.answer = answer
-    return AskResponse.of(answer, answerer.source)
+    return AskResponse.of(answer)
 
 
 def serve(

@@ -1,13 +1,14 @@
 import httpx
-import numpy as np
 import pytest
 
 from edgar_rag.domain import Chunk
-from edgar_rag.index import FilingIndex, build_index
+from edgar_rag.index import CorpusIndex
+from tests.fakes import one_filing_index
 
 
 @pytest.fixture
-def index() -> FilingIndex:
+def index() -> CorpusIndex:
+    """One filing, ``EXAMPLE``, with a passage on each axis."""
     chunks = (
         Chunk(
             chunk_id="Item 1#0", item="Item 1", title="Business", text="The Company designs phones."
@@ -19,8 +20,7 @@ def index() -> FilingIndex:
             text="Supply chains may fail.",
         ),
     )
-    vectors = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
-    return build_index({"company": "Example Inc"}, chunks, vectors)
+    return one_filing_index(chunks, [[1.0, 0.0], [0.0, 1.0]])
 
 
 @pytest.fixture(autouse=True)

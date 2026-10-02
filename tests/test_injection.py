@@ -34,9 +34,9 @@ from edgar_rag.answer import Answerer
 from edgar_rag.domain import AbstentionReason, Chunk
 from edgar_rag.edgar.parse import html_to_text
 from edgar_rag.gate import CosineGate
-from edgar_rag.index import FilingIndex, build_index
+from edgar_rag.index import CorpusIndex
 from edgar_rag.prompt import case_nonce, random_nonce
-from tests.fakes import FakeEmbedder, FakeGate, FakeGenerator, FixedNonce
+from tests.fakes import SCOPE, FakeEmbedder, FakeGate, FakeGenerator, FixedNonce, one_filing_index
 
 NONCE = "0badc0de"
 QUESTION = "what does the company design?"
@@ -47,11 +47,9 @@ TURN = re.compile(r"(question|answer)\s*:", re.IGNORECASE)
 REFUSAL_PHRASE = re.compile(r"not\s+in\s+the\s+filing", re.IGNORECASE)
 
 
-def _index_with(text: str) -> FilingIndex:
+def _index_with(text: str) -> CorpusIndex:
     chunk = Chunk(chunk_id="Exhibit 99#0", item="Exhibit 99", title="Third party", text=text)
-    return build_index(
-        {"company": "Example Inc"}, (chunk,), np.asarray([[1.0, 0.0]], dtype=np.float32)
-    )
+    return one_filing_index((chunk,), np.asarray([[1.0, 0.0]], dtype=np.float32))
 
 
 def _prompt_for(passage: str, question: str = QUESTION) -> str:
@@ -62,7 +60,7 @@ def _prompt_for(passage: str, question: str = QUESTION) -> str:
         generator,
         FakeGate.admitting(),
         nonce=FixedNonce(NONCE),
-    ).ask(question, top_k=1)
+    ).ask(question, SCOPE, top_k=1)
     return generator.prompts[0]
 
 
@@ -82,7 +80,7 @@ def _as_read(text: str) -> str:
     return "".join(char for char in folded if unicodedata.category(char) != "Cf")
 
 
-def _ask(reply: str, index: FilingIndex) -> AbstentionReason | None:
+def _ask(reply: str, index: CorpusIndex) -> AbstentionReason | None:
     """Run one admitted request and return the reason the answer carries."""
     answer = Answerer(
         index,
@@ -90,7 +88,7 @@ def _ask(reply: str, index: FilingIndex) -> AbstentionReason | None:
         FakeGenerator(reply),
         CosineGate(0.5),
         nonce=FixedNonce(NONCE),
-    ).ask(QUESTION, top_k=2)
+    ).ask(QUESTION, SCOPE, top_k=2)
     return answer.reason
 
 
@@ -171,7 +169,7 @@ def test_one_answered_request_draws_exactly_one_nonce(index):
 
     Answerer(
         index, FakeEmbedder({QUESTION: [1.0, 0.0]}), generator, CosineGate(0.5), nonce=nonce
-    ).ask(QUESTION, top_k=2)
+    ).ask(QUESTION, SCOPE, top_k=2)
 
     assert nonce.calls == 1
     assert f"REFUSE-{NONCE}" in generator.prompts[0]
@@ -188,7 +186,7 @@ def test_a_nonce_that_could_break_a_delimiter_fails_closed(index, bad):
             generator,
             CosineGate(0.5),
             nonce=lambda: bad,
-        ).ask(QUESTION, top_k=2)
+        ).ask(QUESTION, SCOPE, top_k=2)
     assert generator.prompts == []
 
 
@@ -274,7 +272,7 @@ def test_a_token_followed_by_a_cited_answer_is_checked_as_an_answer(index):
         FakeGenerator(f"REFUSE-{NONCE} The Company designs phones [1]."),
         CosineGate(0.5),
         nonce=FixedNonce(NONCE),
-    ).ask(QUESTION, top_k=2)
+    ).ask(QUESTION, SCOPE, top_k=2)
 
     assert answer.reason != DECLINED
     assert [citation.marker for citation in answer.citations] == [1]
@@ -307,14 +305,12 @@ def test_the_item_label_is_treated_as_data_too():
     generator = FakeGenerator("unused [1]")
 
     Answerer(
-        build_index(
-            {"company": "Example Inc"}, (chunk,), np.asarray([[1.0, 0.0]], dtype=np.float32)
-        ),
+        one_filing_index((chunk,), np.asarray([[1.0, 0.0]], dtype=np.float32)),
         FakeEmbedder({QUESTION: [1.0, 0.0]}),
         generator,
         FakeGate.admitting(),
         nonce=FixedNonce(NONCE),
-    ).ask(QUESTION, top_k=1)
+    ).ask(QUESTION, SCOPE, top_k=1)
     block = _block(generator.prompts[0])
 
     assert "<" not in block

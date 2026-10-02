@@ -9,7 +9,7 @@ import httpx
 import numpy as np
 from numpy.typing import NDArray
 
-from edgar_rag.domain import Generation
+from edgar_rag.domain import EmbedderSpec, Generation
 
 REQUEST_TIMEOUT_SECONDS = 120.0
 # A health check has to answer fast whatever Ollama is doing.
@@ -23,6 +23,10 @@ PROBE_TTL_SECONDS = 10.0
 GENERATION_OPTIONS: Mapping[str, int] = MappingProxyType(
     {"temperature": 0, "seed": 0, "num_ctx": 8192}
 )
+
+
+# See OllamaEmbedder: the index records it, and refuses queries embedded otherwise.
+LOWERCASE_INPUT = True
 
 
 class ModelError(RuntimeError):
@@ -64,7 +68,10 @@ class OllamaEmbedder:
     tokenizer stops doing this.
 
     Both the index and the queries have to agree, so this is set at
-    construction and applies to every call.
+    construction, applies to every call, and is part of ``spec``, which the
+    index records. ``dimensions``, when given, is the vector size the index
+    holds: a model that returns another size fails here, as a model error,
+    instead of reaching the search.
     """
 
     def __init__(
@@ -72,13 +79,19 @@ class OllamaEmbedder:
         base_url: str,
         model: str,
         *,
-        lowercase: bool = True,
+        lowercase: bool = LOWERCASE_INPUT,
+        dimensions: int | None = None,
         client: httpx.Client | None = None,
     ) -> None:
         self._url = f"{base_url.rstrip('/')}/api/embed"
         self._model = model
         self._lowercase = lowercase
+        self._dimensions = dimensions
         self._client = client
+
+    @property
+    def spec(self) -> EmbedderSpec:
+        return EmbedderSpec(model=self._model, lowercase=self._lowercase)
 
     def embed(self, texts: Sequence[str]) -> NDArray[np.float32]:
         if not texts:
@@ -95,6 +108,11 @@ class OllamaEmbedder:
             raise ModelError(f"{self._model} returned vectors that are not numbers") from error
         if matrix.ndim != 2:
             raise ModelError(f"{self._model} returned vectors of unequal or no length")
+        if self._dimensions is not None and matrix.shape[1] != self._dimensions:
+            raise ModelError(
+                f"{self._model} returned {matrix.shape[1]}-dimension vectors, "
+                f"and the index holds {self._dimensions}"
+            )
         return matrix
 
 

@@ -132,9 +132,10 @@ class AbstentionReason(StrEnum):
     could not be acted on without parsing it, so the reason is a closed set
     and the prose lives in ``Answer.detail``.
 
-    ``out_of_period`` and ``out_of_scope`` belong to checks that are not in
-    the pipeline yet (the period guard and multi-filing scope). They are
-    published now so adding those checks does not change the contract.
+    ``out_of_scope`` means no indexed filing matches the requested company
+    and fiscal year. ``out_of_period`` belongs to the period guard, which is
+    not in the pipeline yet; it is published now so adding the guard does not
+    change the contract.
     """
 
     GATE_REJECTED = "gate_rejected"
@@ -167,7 +168,8 @@ ABSTAINED_MESSAGES: Mapping[AbstentionReason, str] = MappingProxyType(
             "The answer makes a claim its cited passage does not support, so it is withheld."
         ),
         AbstentionReason.OUT_OF_SCOPE: (
-            "The question is about a filing outside the indexed scope, so the model was not asked."
+            "No indexed filing matches the requested company and fiscal year, "
+            "so the model was not asked."
         ),
     }
 )
@@ -225,8 +227,10 @@ class Answer:
     ``gate_score`` is the gate's own confidence, which is cosine similarity or
     a probability depending on the gate, and ``degraded`` says the gate ran on
     part of its evidence or on its fallback, which a caller must be able to
-    tell apart from a model decision. ``trace`` is for whoever operates or
-    evaluates the service; it is logged, not returned to the client.
+    tell apart from a model decision. ``source`` is the filing the scope
+    resolved to, and ``None`` only when it resolved to none. ``trace`` is for
+    whoever operates or evaluates the service; it is logged, not returned to
+    the client.
     """
 
     question: str
@@ -238,6 +242,7 @@ class Answer:
     retrieval_score: float
     gate_score: float
     degraded: bool
+    source: IndexedFiling | None
     trace: Trace
 
 
@@ -254,13 +259,18 @@ class RelevanceGate(Protocol):
 
 
 class Retriever(Protocol):
-    """Passages close to a query vector."""
+    """Passages close to a query vector, from the one filing a scope names."""
 
-    @property
-    def source(self) -> dict[str, str]:
-        """The filing the passages come from."""
+    def resolve(self, scope: Scope) -> IndexedFiling | None:
+        """The filing ``scope`` names, or ``None`` when none is indexed."""
         ...
 
     def search(
-        self, query: NDArray[np.float32], top_k: int = DEFAULT_TOP_K
-    ) -> tuple[ScoredChunk, ...]: ...
+        self, query: NDArray[np.float32], scope: Scope, top_k: int = DEFAULT_TOP_K
+    ) -> tuple[ScoredChunk, ...]:
+        """The ``top_k`` passages of that filing closest to ``query``.
+
+        No passage of another filing is ever returned, and none at all when
+        ``scope`` names no indexed filing.
+        """
+        ...

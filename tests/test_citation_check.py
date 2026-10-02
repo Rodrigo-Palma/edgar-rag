@@ -18,30 +18,30 @@ import pytest
 from edgar_rag.answer import Answerer
 from edgar_rag.domain import AbstentionReason, Answer, Chunk
 from edgar_rag.gate import CosineGate
-from edgar_rag.index import FilingIndex, build_index
-from tests.fakes import FakeEmbedder, FakeGenerator
+from edgar_rag.index import CorpusIndex
+from tests.fakes import SCOPE, FakeEmbedder, FakeGenerator, one_filing_index
 
 QUESTION = "how much did the company spend on research and development?"
 RND = "Research and development expense was $31,370 million in 2024, up from $29,915 million."
 TABLE = "Net sales by category (in millions): iPhone 201,183; Mac 29,984."
 
 
-def _index(first: str = RND, second: str = TABLE) -> FilingIndex:
+def _index(first: str = RND, second: str = TABLE) -> CorpusIndex:
     chunks = (
         Chunk(chunk_id="Item 7#0", item="Item 7", title="MD&A", text=first),
         Chunk(chunk_id="Item 8#0", item="Item 8", title="Financial Statements", text=second),
     )
     vectors = np.asarray([[1.0, 0.0], [0.6, 0.8]], dtype=np.float32)
-    return build_index({"company": "Example Inc"}, chunks, vectors)
+    return one_filing_index(chunks, vectors)
 
 
-def _ask(reply: str, index: FilingIndex | None = None) -> Answer:
+def _ask(reply: str, index: CorpusIndex | None = None) -> Answer:
     return Answerer(
         index if index is not None else _index(),
         FakeEmbedder({QUESTION: [1.0, 0.0]}),
         FakeGenerator(reply),
         CosineGate(0.5),
-    ).ask(QUESTION, top_k=2)
+    ).ask(QUESTION, SCOPE, top_k=2)
 
 
 # Case 10

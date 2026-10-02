@@ -17,9 +17,9 @@ from fastapi.testclient import TestClient
 from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import Generation
 from edgar_rag.gate import CosineGate
-from edgar_rag.index import FilingIndex
+from edgar_rag.index import CorpusIndex
 from edgar_rag.service.app import create_app
-from tests.fakes import CITED_REPLY, ON_TOPIC, fake_answerer
+from tests.fakes import CIK, CITED_REPLY, EXAMPLE, ON_TOPIC, fake_answerer
 
 # Long enough that a passing run never comes near it, short enough that a
 # request left hanging fails the test instead of the whole run.
@@ -78,17 +78,20 @@ def test_the_index_is_read_once_for_ten_requests(index, tmp_path, monkeypatch):
     """It used to be read on every /ask and every /health."""
     index.save(tmp_path)
     reads: list[object] = []
-    load = FilingIndex.load
+    load = CorpusIndex.load
 
-    def counting_load(cls, directory):
+    def counting_load(cls, directory, expect):
         reads.append(directory)
-        return load(directory)
+        return load(directory, expect)
 
-    monkeypatch.setattr(FilingIndex, "load", classmethod(counting_load))
+    monkeypatch.setattr(CorpusIndex, "load", classmethod(counting_load))
     app = create_app(_settings_over(tmp_path), transport=httpx.MockTransport(_fake_ollama))
 
     with TestClient(app) as client:
-        statuses = [client.post("/ask", json={"question": ON_TOPIC}).status_code for _ in range(5)]
+        statuses = [
+            client.post("/ask", json={"cik": CIK, "question": ON_TOPIC}).status_code
+            for _ in range(5)
+        ]
         statuses += [client.get("/health").status_code for _ in range(5)]
 
     assert statuses == [200] * 10
@@ -106,7 +109,7 @@ def test_the_models_are_called_through_one_client_closed_at_shutdown(index, tmp_
     app = create_app(_settings_over(tmp_path), transport=httpx.MockTransport(recording))
 
     with TestClient(app) as client:
-        body = client.post("/ask", json={"question": ON_TOPIC}).json()
+        body = client.post("/ask", json={"cik": CIK, "question": ON_TOPIC}).json()
         opened = app.state.http
         assert opened.is_closed is False
 
@@ -123,7 +126,8 @@ def test_four_simultaneous_requests_serve_two_and_turn_two_away_at_once(index):
 
     with TestClient(app) as client, ThreadPoolExecutor(max_workers=4) as pool:
         asks: list[Future[httpx.Response]] = [
-            pool.submit(client.post, "/ask", json={"question": ON_TOPIC}) for _ in range(4)
+            pool.submit(client.post, "/ask", json={"cik": CIK, "question": ON_TOPIC})
+            for _ in range(4)
         ]
         try:
             _until(lambda: sum(ask.done() for ask in asks) == 2, "two requests turned away")
@@ -146,7 +150,10 @@ def test_a_slot_is_given_back_when_its_generation_ends(index):
     settings = ServiceSettings(max_concurrent_generations=1)
 
     with TestClient(create_app(settings, fake_answerer(index, generator=generator))) as client:
-        statuses = [client.post("/ask", json={"question": ON_TOPIC}).status_code for _ in range(3)]
+        statuses = [
+            client.post("/ask", json={"cik": CIK, "question": ON_TOPIC}).status_code
+            for _ in range(3)
+        ]
 
     assert statuses == [200, 200, 200]
 
@@ -160,7 +167,7 @@ def test_a_request_past_its_time_budget_is_answered_with_504(index):
     with TestClient(app) as client:
         started = time.monotonic()
         try:
-            response = client.post("/ask", json={"question": ON_TOPIC})
+            response = client.post("/ask", json={"cik": CIK, "question": ON_TOPIC})
         finally:
             generator.release.set()
         waited = time.monotonic() - started
@@ -186,8 +193,8 @@ def test_every_request_is_logged_as_one_line_of_json(index, caplog):
     )
 
     with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
-        client.post("/ask", json={"question": ON_TOPIC, "top_k": 2})
-        client.post("/ask", json={"question": "hi"})
+        client.post("/ask", json={"cik": CIK, "question": ON_TOPIC, "top_k": 2})
+        client.post("/ask", json={"cik": CIK, "question": "hi"})
         client.get("/health")
 
     answered, rejected, health = _telemetry(caplog)
@@ -198,6 +205,7 @@ def test_every_request_is_logged_as_one_line_of_json(index, caplog):
     assert answered["reason"] is None
     assert answered["degraded"] is False
     assert answered["top_k"] == 2
+    assert answered["accession"] == EXAMPLE.accession
     assert answered["prompt_tokens"] > 0
     assert answered["completion_tokens"] == len(CITED_REPLY.split())
     assert "seconds" in answered
@@ -210,7 +218,7 @@ def test_an_abstention_is_logged_with_its_reason_and_no_generation(index, caplog
     app = create_app(ServiceSettings(), fake_answerer(index, gate=CosineGate(1.1)))
 
     with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
-        client.post("/ask", json={"question": ON_TOPIC})
+        client.post("/ask", json={"cik": CIK, "question": ON_TOPIC})
 
     [line] = _telemetry(caplog)
     assert line["reason"] == "gate_rejected"
@@ -226,8 +234,8 @@ def test_a_request_turned_away_or_timed_out_is_still_logged(index, caplog):
 
     with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
         try:
-            client.post("/ask", json={"question": ON_TOPIC})
-            client.post("/ask", json={"question": ON_TOPIC})
+            client.post("/ask", json={"cik": CIK, "question": ON_TOPIC})
+            client.post("/ask", json={"cik": CIK, "question": ON_TOPIC})
         finally:
             generator.release.set()
 
@@ -239,7 +247,7 @@ def test_the_question_itself_is_not_logged(index, caplog):
     app = create_app(ServiceSettings(), fake_answerer(index))
 
     with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
-        client.post("/ask", json={"question": ON_TOPIC})
+        client.post("/ask", json={"cik": CIK, "question": ON_TOPIC})
 
     assert ON_TOPIC not in caplog.text
 
@@ -253,7 +261,7 @@ def test_a_crash_is_logged_as_a_500(index, caplog):
     client = TestClient(app, raise_server_exceptions=False)
 
     with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), client:
-        assert client.post("/ask", json={"question": ON_TOPIC}).status_code == 500
+        assert client.post("/ask", json={"cik": CIK, "question": ON_TOPIC}).status_code == 500
 
     [line] = _telemetry(caplog)
     assert line["status"] == 500

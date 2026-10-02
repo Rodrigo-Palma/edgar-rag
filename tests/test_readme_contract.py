@@ -18,14 +18,13 @@ from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import AbstentionReason
 from edgar_rag.gate import CosineGate
 from edgar_rag.service.app import create_app
-from tests.fakes import fake_answerer
+from edgar_rag.service.schemas import AskRequest
+from tests.fakes import CIK, fake_answerer
 
 README = Path(__file__).resolve().parents[1] / "README.md"
 JSON_BLOCK = re.compile(r"```json\n(.*?)```", re.DOTALL)
+REQUEST_BODY = re.compile(r"-d '(\{.*?\})'", re.DOTALL)
 QUESTION = "what does the company design?"
-# Filing metadata: which keys it has depends on what was ingested, so the
-# contract is only that it is an object of strings.
-OPEN_OBJECTS = frozenset({"source"})
 
 
 def _examples() -> list[dict[str, object]]:
@@ -42,7 +41,7 @@ def _example(*, abstained: bool) -> dict[str, object]:
 def _served(index, *, min_score: float) -> dict[str, object]:
     app = create_app(ServiceSettings(), fake_answerer(index, gate=CosineGate(min_score)))
     with TestClient(app) as client:
-        response = client.post("/ask", json={"question": QUESTION, "top_k": 2})
+        response = client.post("/ask", json={"cik": CIK, "question": QUESTION, "top_k": 2})
     assert response.status_code == 200
     body: dict[str, object] = response.json()
     return body
@@ -62,13 +61,10 @@ def _kind(value: object) -> str:
     return "object"
 
 
-def _shape(value: object, key: str = "") -> object:
+def _shape(value: object) -> object:
     """Keys and JSON types, recursively; the values themselves do not matter."""
     if isinstance(value, dict):
-        if key in OPEN_OBJECTS:
-            assert all(isinstance(item, str) for item in value.values()), key
-            return "object of strings"
-        return {name: _shape(item, name) for name, item in value.items()}
+        return {name: _shape(item) for name, item in value.items()}
     if isinstance(value, list):
         return [_shape(item) for item in value[:1]]
     return _kind(value)
@@ -92,3 +88,13 @@ def test_the_readme_abstention_uses_a_published_reason():
     reason = _example(abstained=True)["reason"]
 
     assert reason in {member.value for member in AbstentionReason}
+
+
+def test_every_request_the_readme_sends_is_one_the_service_accepts():
+    """The curl examples name a filing, as the request schema requires."""
+    bodies = REQUEST_BODY.findall(README.read_text("utf-8"))
+    assert bodies, "the README shows no request"
+
+    for body in bodies:
+        request = AskRequest.model_validate_json(body)
+        assert request.cik > 0

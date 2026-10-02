@@ -10,6 +10,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 from pydantic import ValidationError
@@ -18,6 +19,7 @@ from edgar_rag.config import IngestSettings, ServiceSettings
 from edgar_rag.edgar.client import EdgarClient, EdgarError, Filing
 from edgar_rag.edgar.fetch import REQUEST_TIMEOUT_SECONDS as EDGAR_TIMEOUT_SECONDS
 from edgar_rag.eval import build, power
+from edgar_rag.index import IndexFormatError, write_shard
 from edgar_rag.ingest import index_filing
 from edgar_rag.models import REQUEST_TIMEOUT_SECONDS as MODEL_TIMEOUT_SECONDS
 from edgar_rag.models import ModelError, OllamaEmbedder
@@ -58,9 +60,16 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="edgar-rag", description=DESCRIPTION)
     commands = parser.add_subparsers(title="commands", required=True, metavar="COMMAND")
 
-    ingest = commands.add_parser("ingest", help="download a company's latest filing and index it")
+    ingest = commands.add_parser(
+        "ingest", help="download a company's latest filing and add it to the index"
+    )
     ingest.add_argument("--cik", type=int, required=True, help="company CIK, 320193 for Apple")
     ingest.add_argument("--form", default="10-K", help="the form to index (default: 10-K)")
+    ingest.add_argument(
+        "--index-dir",
+        type=Path,
+        help="the index to add it to (default: EDGAR_RAG_INDEX_DIR, or data/index)",
+    )
     ingest.set_defaults(command=_ingest)
 
     serving = commands.add_parser("serve", help="answer questions over HTTP from the index")
@@ -76,7 +85,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _ingest(args: argparse.Namespace, transport: httpx.BaseTransport | None) -> int:
-    """Download, embed and save, writing nothing unless every step succeeded."""
+    """Download, embed and add to the index, writing nothing unless every step succeeded."""
     try:
         settings = IngestSettings()
     except ValidationError as error:
@@ -92,13 +101,20 @@ def _ingest(args: argparse.Namespace, transport: httpx.BaseTransport | None) -> 
             str(settings.ollama_base_url), settings.embedding_model, client=http
         )
         try:
-            index = index_filing(filing, embedder)
+            shard = index_filing(filing, embedder)
         except (ModelError, ValueError) as error:
             return _fail(f"embedding: {error}")
 
-    index.save(settings.index_dir)
-    print(f"{filing.company} {filing.form} {filing.filing_date}: {len(index.chunks)} chunks")
-    print(f"index written to {settings.index_dir}")
+    root: Path = args.index_dir or settings.index_dir
+    try:
+        write_shard(root, shard, embedder.spec)
+    except (IndexFormatError, ValueError) as error:
+        return _fail(f"index: {error}")
+    print(
+        f"{filing.company} {filing.form} {filing.filing_date}, "
+        f"fiscal {shard.filing.fiscal_year}: {len(shard.chunks)} chunks"
+    )
+    print(f"{shard.filing.accession} added to the index in {root}")
     return 0
 
 

@@ -171,13 +171,18 @@ make check                  # lint, types, import contracts, tests with coverage
 cp .env.example .env        # the SEC requires a real contact in EDGAR_RAG_EDGAR_USER_AGENT
 ollama pull nomic-embed-text && ollama pull qwen3:32b
 
-uv run edgar-rag ingest --cik 320193     # Apple's latest 10-K
+uv run edgar-rag ingest --cik 320193     # adds Apple's latest 10-K to the index
 uv run edgar-rag serve                   # serves on 127.0.0.1:8000
 ```
 
+Every question names the filing it is about: `cik` is required, and
+`fiscal_year` picks one of the company's indexed years (the latest when left
+out). The search never leaves that filing, and a company or year with no
+indexed filing abstains with `out_of_scope` without calling a model.
+
 ```bash
 curl -s localhost:8000/ask -H 'content-type: application/json' \
-  -d '{"question": "What does the company identify as its principal competitive factors?"}'
+  -d '{"cik": 320193, "fiscal_year": 2025, "question": "What does the company identify as its principal competitive factors?"}'
 ```
 
 An answer, as the service returned it for Apple's 10-K (long strings trimmed
@@ -204,6 +209,9 @@ to `...`, nothing else changed):
   "degraded": false,
   "source": {
     "company": "Apple Inc.",
+    "cik": 320193,
+    "fiscal_year": 2025,
+    "accession": "0000320193-25-000079",
     "form": "10-K",
     "filing_date": "2025-10-31",
     "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
@@ -226,6 +234,9 @@ An abstention has no `text`, and says which check withheld the answer:
   "degraded": false,
   "source": {
     "company": "Apple Inc.",
+    "cik": 320193,
+    "fiscal_year": 2025,
+    "accession": "0000320193-25-000079",
     "form": "10-K",
     "filing_date": "2025-10-31",
     "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
@@ -235,11 +246,11 @@ An abstention has no `text`, and says which check withheld the answer:
 
 `reason` is one of `gate_rejected`, `out_of_period`, `model_declined`,
 `no_valid_citation`, `unsupported_claim` or `out_of_scope`, and is `null` on an
-answer. Today the pipeline emits the first, third, fourth and fifth; the others
-are reserved for the period guard and multi-filing scope, so adding them does
-not change the response. `gate_score` is the gate's
-own confidence: cosine similarity for the cosine gate, a probability for the
-model gate.
+answer. Every one but `out_of_period` is emitted today; that one is reserved
+for the period guard, so adding it does not change the response. On
+`out_of_scope`, `source` is `null` and both scores are 0, since nothing was
+searched. `gate_score` is the gate's own confidence: cosine similarity for the
+cosine gate, a probability for the model gate.
 
 `degraded` is true when the gate decided on part of its evidence: the brier
 service was unreachable and cosine answered in its place, or it could not judge
@@ -255,8 +266,15 @@ once; a request that needs another gets `503` with `Retry-After` immediately
 rather than waiting in a queue, and a question the gate rejects is answered
 whatever the load. A request still running after
 `EDGAR_RAG_REQUEST_TIMEOUT_SECONDS` (90) gets `504`. `/health` reports the
-loaded filing, a fingerprint of the index and whether Ollama answers, probing
-it at most every 10 seconds.
+indexed filings, a fingerprint of the index and whether Ollama answers,
+probing it at most every 10 seconds.
+
+The index holds one shard per filing under a `manifest.json` that records the
+embedding model, whether its input was lower-cased, and the vector size. The
+service refuses to start on an index built with another embedding model, or
+whose shards do not match the SHA-256 the manifest recorded for them: either
+would load and answer from the wrong passages without an error. Ingesting
+another filing adds a shard; ingesting the same one again replaces it.
 
 Every request writes one line of JSON to stderr with its status, total and
 per-stage seconds (`embed`, `search`, `gate`, `generate`), `reason`,
@@ -276,14 +294,14 @@ default. Both are needed before it listens anywhere else.
 | `src/edgar_rag/cli.py` | the `edgar-rag` command: `ingest`, `serve`, `eval power` |
 | `src/edgar_rag/service/` | the service: composition at startup, limits, the JSON contract, error mapping |
 | `src/edgar_rag/eval/` | evaluation statistics: metrics, cluster bootstrap, numeric matching, power |
-| `src/edgar_rag/ingest.py` | a downloaded filing into an index: parse, chunk, embed in batches |
+| `src/edgar_rag/ingest.py` | a filing into a shard of the index: parse, chunk, embed in batches |
 | `src/edgar_rag/answer.py` | the `Answerer`: retrieve, gate, generate, check the citations, or abstain |
 | `src/edgar_rag/config.py` | settings for the service, the ingestion and the evaluation |
 | `src/edgar_rag/prompt.py` | the generation prompt and the untrusted-text guard |
 | `src/edgar_rag/citations.py` | which passages an answer cites, whether each sentence is backed by them, and the quote shown |
 | `src/edgar_rag/chunking.py` | sections into passages, cut on sentence boundaries |
 | `src/edgar_rag/gate.py` | the relevance gate: cosine, model, and the fallback |
-| `src/edgar_rag/index.py` | vector index, cosine search, disk format |
+| `src/edgar_rag/index.py` | the index: one shard per filing, the manifest and its checks, scoped cosine search |
 | `src/edgar_rag/models.py` | Ollama embedding and generation, lower-cased and pinned |
 | `src/edgar_rag/edgar/` | EDGAR client, XBRL facts and the 10-K parser |
 | `src/edgar_rag/amounts.py` | amounts as a filing writes them, shared by the evaluation and the citation check |
