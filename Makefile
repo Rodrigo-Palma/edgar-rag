@@ -5,7 +5,7 @@ SRC := src tests scripts
 
 .DEFAULT_GOAL := help
 .PHONY: help sync check lint format typecheck imports test audit serve demo demo-record image up down \
-	ingest eval eval-full eval-ci eval-ci-baseline eval-ci-record cosine-threshold readme
+	ingest eval result eval-full eval-ci eval-ci-baseline eval-ci-record cosine-threshold readme
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -73,6 +73,9 @@ eval: ## Rebuild docs/eval/ from the frozen runs in eval/runs/ (no model, no net
 		$(UV_RUN) edgar-rag eval report --run $$run --out $$out || exit 1; \
 		echo "$$out"; \
 	done
+
+result: ## Print the six arms and the H1/H2 reading from docs/eval/report-v1.md (no model)
+	@$(UV_RUN) python scripts/print_result.py
 
 # The CI tier: the dev split replayed from the qwen3:8b tape over the committed
 # index. Index and tape are rebuilt together, never one without the other.
