@@ -10,7 +10,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from edgar_rag.domain import NotRecorded
-from edgar_rag.gate import GateError
 from edgar_rag.models import ModelError
 
 logger = logging.getLogger(__name__)
@@ -45,11 +44,6 @@ def reject_invalid_input(request: Request, error: Exception) -> JSONResponse:
 def report_model_failure(request: Request, error: Exception) -> JSONResponse:
     logger.error("model backend failed on %s", request.url.path, exc_info=error)
     return JSONResponse(status_code=502, content={"detail": "model backend unavailable"})
-
-
-def report_gate_failure(request: Request, error: Exception) -> JSONResponse:
-    logger.error("relevance gate failed on %s", request.url.path, exc_info=error)
-    return JSONResponse(status_code=502, content={"detail": "relevance model unavailable"})
 
 
 def report_missing_index(request: Request, error: Exception) -> JSONResponse:
@@ -87,7 +81,6 @@ def report_not_recorded(request: Request, error: Exception) -> JSONResponse:
 def report_failures(app: FastAPI) -> None:
     app.add_exception_handler(ValueError, reject_invalid_input)
     app.add_exception_handler(ModelError, report_model_failure)
-    app.add_exception_handler(GateError, report_gate_failure)
     app.add_exception_handler(IndexUnavailable, report_missing_index)
     app.add_exception_handler(ServiceBusy, report_busy)
     app.add_exception_handler(RequestTimedOut, report_timeout)

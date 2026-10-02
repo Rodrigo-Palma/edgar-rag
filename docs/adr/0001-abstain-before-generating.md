@@ -41,7 +41,7 @@ when `brier_url` is unset, otherwise `BrierGate` with `CosineGate` as fallback.
 
 A fallback is never reported as the primary judge: when `BrierGate` cannot reach
 its service and falls back, the decision carries `degraded=True` and the reason
-says so. Without a fallback the failure is raised as `GateError`.
+says so.
 
 Amended on 2026-10-01: the gate also receives the filing the scope resolved
 to, so a rule can judge the question against the period that filing covers.
@@ -83,6 +83,6 @@ the code before that.
 
 - [`test_abstains_before_generating_when_retrieval_is_weak`](../../tests/test_answer.py): the fake generator records no prompt when the gate refuses.
 - [`test_abstains_when_the_model_says_the_filing_does_not_cover_it`](../../tests/test_answer.py) and [`test_an_answer_that_cites_nothing_is_an_abstention`](../../tests/test_answer.py): the post-generation paths are distinct from the gate's.
-- [`test_a_partly_judged_refusal_reaches_the_client_as_degraded`](../../tests/test_api.py) and [`test_a_gate_that_cannot_reach_its_model_is_a_bad_gateway_not_a_crash`](../../tests/test_api.py): `degraded` reaches the HTTP response, and a `GateError` is a 502.
+- [`test_a_partly_judged_refusal_reaches_the_client_as_degraded`](../../tests/test_api.py): `degraded` reaches the HTTP response.
 - [`test_each_gate_is_built_as_named`](../../tests/test_api.py): the wiring in `build_gate`.
 - [`test_a_period_rejection_is_out_of_period_whatever_the_relevance_gate_thought`](../../tests/test_gate_composition.py) and [`test_a_question_in_a_reported_year_is_never_declined`](../../tests/test_period.py): the guard in front of the relevance gate.

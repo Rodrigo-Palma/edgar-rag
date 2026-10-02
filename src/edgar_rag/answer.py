@@ -73,7 +73,6 @@ class Answerer[Index: Retriever]:
         Raises:
             ValueError: when the question is empty, ``top_k`` is below one, or
                 the nonce source returns a value that could break the delimiter.
-            GateError: when the gate cannot reach the service it depends on.
         """
         if not question.strip():
             raise ValueError("question must not be empty")

@@ -15,10 +15,6 @@ from edgar_rag.domain import GateDecision, IndexedFiling, RelevanceGate, ScoredC
 COSINE = "cosine"
 
 
-class GateError(RuntimeError):
-    """Raised when a gate cannot reach the service it depends on."""
-
-
 @dataclass(frozen=True, slots=True)
 class NoGate:
     """Admit every question: the model's own refusal is the only check left.

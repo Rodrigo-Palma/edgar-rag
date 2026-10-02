@@ -65,7 +65,7 @@ from edgar_rag.eval.runner import (
     repeat_order,
     run_cases,
 )
-from edgar_rag.gate import AllOf, CosineGate, GateError
+from edgar_rag.gate import AllOf, CosineGate
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import (
     LOWERCASE_INPUT,
@@ -140,7 +140,7 @@ def run_run_command(args: argparse.Namespace) -> int:
         return _fail("--repeat measures the live model; it cannot run in replay")
     try:
         return _run(args, settings)
-    except (TapeMiss, ModelError, GateError, IndexFormatError, OSError, ValueError) as error:
+    except (TapeMiss, ModelError, IndexFormatError, OSError, ValueError) as error:
         return _fail(f"{type(error).__name__}: {error}")
 
 

@@ -82,9 +82,9 @@ from the run's tape (`git lfs pull --include="eval/runs/v1/tape/**"
   `eval/ci/baseline.json` was judged again in the same commit.
 - Recording can no longer score brier. A future run that wants it back restores
   the gate from the history (`d9112ac`) and goes through a new protocol.
-- `GateError` and the `degraded` field stay as the contract for a gate that
-  depends on a service, though no built-in gate raises the one or sets the
-  other now.
+- `GateError` is removed: no gate raises it, and it comes back with the gate
+  that needs it (the history at `d9112ac` keeps its 502 handler). `degraded`
+  stays, because the brier replay sets it and the v1 run records it.
 
 ## Enforced by
 

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from edgar_rag.config import ServiceSettings
 from edgar_rag.domain import GateDecision, Generation
-from edgar_rag.gate import AllOf, CosineGate, GateError, NoGate
+from edgar_rag.gate import AllOf, CosineGate, NoGate
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import ModelError
 from edgar_rag.period import PeriodGuard
@@ -158,21 +158,6 @@ def test_an_embedder_failure_is_a_bad_gateway_too(index):
 
     assert response.status_code == 502
     _assert_no_topology(response.text)
-
-
-def test_a_gate_that_cannot_reach_its_model_is_a_bad_gateway_not_a_crash(index, caplog):
-    """A ``GateError`` used to escape as a 500."""
-
-    class UnreachableGate:
-        def admits(self, question, passages, filing):
-            raise GateError("http://localhost:8100 did not answer: ConnectError")
-
-    with caplog.at_level(logging.ERROR, logger="edgar_rag.service"):
-        response = _ask_with(index, gate=UnreachableGate())
-
-    assert response.status_code == 502
-    _assert_no_topology(response.text)
-    assert "http://localhost:8100" in caplog.text
 
 
 def _ollama_answering(status: int, asked: list[str] | None = None) -> httpx.MockTransport:
