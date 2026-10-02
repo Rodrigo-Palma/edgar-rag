@@ -5,6 +5,8 @@ request held a worker for as long as the models took, so a few slow requests
 could stall the service. These tests pin the fixes with fakes and no network.
 """
 
+import json
+import logging
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -14,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from edgar_rag.api import create_app
 from edgar_rag.config import ServiceSettings
+from edgar_rag.gate import CosineGate
 from edgar_rag.index import FilingIndex
 from tests.fakes import CITED_REPLY, ON_TOPIC, fake_answerer
 
@@ -164,3 +167,86 @@ def test_a_request_past_its_time_budget_is_answered_with_504(index):
     assert response.status_code == 504
     assert waited < PATIENCE_SECONDS
     assert "took too long" in response.json()["detail"]
+
+
+def _telemetry(caplog) -> list[dict[str, object]]:
+    lines = [
+        record.getMessage() for record in caplog.records if record.name == "edgar_rag.telemetry"
+    ]
+    return [json.loads(line) for line in lines]
+
+
+def test_every_request_is_logged_as_one_line_of_json(index, caplog):
+    """Stages, reason and degraded per request, the 4xx included (ADR 0012)."""
+    app = create_app(ServiceSettings(min_retrieval_score=0.5), fake_answerer(index))
+
+    with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
+        client.post("/ask", json={"question": ON_TOPIC, "top_k": 2})
+        client.post("/ask", json={"question": "hi"})
+        client.get("/health")
+
+    answered, rejected, health = _telemetry(caplog)
+    assert answered["path"] == "/ask"
+    assert answered["status"] == 200
+    assert set(answered["stages"]) == {"embed", "search", "gate", "generate"}
+    assert answered["abstained"] is False
+    assert answered["reason"] is None
+    assert answered["degraded"] is False
+    assert answered["top_k"] == 2
+    assert {"prompt_tokens", "completion_tokens", "seconds"} <= set(answered)
+    assert rejected["status"] == 422
+    assert rejected["stages"] == {}
+    assert health["path"] == "/health"
+
+
+def test_an_abstention_is_logged_with_its_reason_and_no_generation(index, caplog):
+    app = create_app(ServiceSettings(), fake_answerer(index, gate=CosineGate(1.1)))
+
+    with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
+        client.post("/ask", json={"question": ON_TOPIC})
+
+    [line] = _telemetry(caplog)
+    assert line["reason"] == "gate_rejected"
+    assert line["abstained"] is True
+    assert "generate" not in line["stages"]
+
+
+def test_a_request_turned_away_or_timed_out_is_still_logged(index, caplog):
+    generator = HeldGenerator()
+    settings = ServiceSettings(request_timeout_seconds=0.2, max_concurrent_generations=1)
+    app = create_app(settings, fake_answerer(index, generator=generator))
+
+    with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
+        try:
+            client.post("/ask", json={"question": ON_TOPIC})
+            client.post("/ask", json={"question": ON_TOPIC})
+        finally:
+            generator.release.set()
+
+    assert [line["status"] for line in _telemetry(caplog)] == [504, 503]
+
+
+def test_the_question_itself_is_not_logged(index, caplog):
+    """A question is whatever a client typed; the log keeps what it cost."""
+    app = create_app(ServiceSettings(), fake_answerer(index))
+
+    with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
+        client.post("/ask", json={"question": ON_TOPIC})
+
+    assert ON_TOPIC not in caplog.text
+
+
+def test_a_crash_is_logged_as_a_500(index, caplog):
+    class CrashingGenerator:
+        def generate(self, prompt: str) -> str:
+            raise RuntimeError("a bug, not a backend failure")
+
+    app = create_app(ServiceSettings(), fake_answerer(index, generator=CrashingGenerator()))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), client:
+        assert client.post("/ask", json={"question": ON_TOPIC}).status_code == 500
+
+    [line] = _telemetry(caplog)
+    assert line["status"] == 500
+    assert "generate" in line["stages"]

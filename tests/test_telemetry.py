@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from edgar_rag.telemetry import StageTimer, log_request
+from edgar_rag.telemetry import StageTimer, log_request, logger, write_to_stderr
 
 
 class TickingClock:
@@ -65,3 +65,16 @@ def test_a_request_is_logged_as_one_line_of_json(caplog):
     line = caplog.records[0].getMessage()
     assert "\n" not in line
     assert json.loads(line) == {"path": "/ask", "status": 200, "stages": {"embed": 0.1}}
+
+
+def test_request_lines_reach_stderr_as_bare_json_when_serving(capsys):
+    """Under uvicorn the root logger drops INFO, which would lose every line."""
+    handler = write_to_stderr()
+    try:
+        log_request({"path": "/health", "status": 200})
+    finally:
+        logger.removeHandler(handler)
+        logger.propagate = True
+        logger.setLevel(logging.NOTSET)
+
+    assert json.loads(capsys.readouterr().err) == {"path": "/health", "status": 200}

@@ -47,5 +47,19 @@ class StageTimer:
             return {stage: round(spent, 4) for stage, spent in self._seconds.items()}
 
 
+def write_to_stderr() -> logging.Handler:
+    """Send request lines to stderr as bare JSON, with no prefix to strip.
+
+    The root logger stays at WARNING under uvicorn, so without this the lines
+    would be dropped. Returns the handler so a caller can take it off again.
+    """
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    return handler
+
+
 def log_request(fields: Mapping[str, object]) -> None:
     logger.info(json.dumps(dict(fields), separators=(",", ":"), default=str))

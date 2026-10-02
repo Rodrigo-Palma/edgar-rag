@@ -9,7 +9,8 @@ the endpoints only read what it put in ``app.state``. Run it with
 import dataclasses
 import logging
 import threading
-from collections.abc import AsyncIterator, Callable
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import partial
@@ -19,7 +20,7 @@ import anyio
 import httpx
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from edgar_rag import __version__
@@ -28,6 +29,7 @@ from edgar_rag.config import ServiceSettings
 from edgar_rag.embeddings import Generator, ModelError, OllamaEmbedder, OllamaGenerator
 from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
 from edgar_rag.index import FilingIndex
+from edgar_rag.telemetry import StageTimer, log_request, write_to_stderr
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +188,7 @@ def create_app(
             yield
 
     app = FastAPI(title="edgar-rag", version=__version__, lifespan=lifespan)
+    app.middleware("http")(log_each_request)
     _report_failures(app)
     app.include_router(router)
     return app
@@ -240,6 +243,46 @@ def _report_failures(app: FastAPI) -> None:
     app.add_exception_handler(RequestTimedOut, report_timeout)
 
 
+async def log_each_request(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """One line of JSON per request, whatever its outcome, the 500 included.
+
+    The stages and the answer are what the endpoint left in ``request.state``;
+    a request rejected before reaching it is logged with no stages. The
+    question is not logged: it is whatever a client typed.
+    """
+    started = time.perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        log_request(_request_fields(request, status, time.perf_counter() - started))
+
+
+def _request_fields(request: Request, status: int, seconds: float) -> dict[str, object]:
+    stages: StageTimer | None = getattr(request.state, "stages", None)
+    answer: Answer | None = getattr(request.state, "answer", None)
+    return {
+        "method": request.method,
+        "path": request.url.path,
+        "status": status,
+        "seconds": round(seconds, 4),
+        "stages": stages.seconds() if stages is not None else {},
+        "top_k": getattr(request.state, "top_k", None),
+        "abstained": answer.abstained if answer else None,
+        "reason": answer.reason if answer else None,
+        "degraded": answer.degraded if answer else None,
+        "retrieval_score": answer.retrieval_score if answer else None,
+        "gate_score": answer.gate_score if answer else None,
+        # The generator does not report its token counts yet.
+        "prompt_tokens": None,
+        "completion_tokens": None,
+    }
+
+
 def loaded_answerer(request: Request) -> Answerer:
     """The answerer the lifespan built, or 503 when there was no index."""
     answerer: Answerer | None = request.app.state.answerer
@@ -277,12 +320,15 @@ async def ask(
     until then, which is what keeps abandoned work from piling up on the GPU.
     """
     budget = request.app.state.settings.request_timeout_seconds
-    work = partial(answerer.ask, question.question, top_k=question.top_k)
+    stages = StageTimer()
+    request.state.stages, request.state.top_k = stages, question.top_k
+    work = partial(answerer.ask, question.question, top_k=question.top_k, stages=stages)
     try:
         with anyio.fail_after(budget):
             answer = await anyio.to_thread.run_sync(work, abandon_on_cancel=True)
     except TimeoutError as error:
         raise RequestTimedOut(f"no answer within {budget} s") from error
+    request.state.answer = answer
     return AskResponse.of(answer, answerer.source)
 
 
@@ -291,6 +337,7 @@ def serve(
 ) -> None:
     """Run the service on the configured address, 127.0.0.1:8000 by default."""
     config = settings if settings is not None else ServiceSettings()
+    write_to_stderr()
     run(create_app(config), host=config.host, port=config.port)
 
 

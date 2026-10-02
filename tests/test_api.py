@@ -281,5 +281,10 @@ def test_the_service_is_served_on_the_local_machine_unless_configured_otherwise(
     calls: list[dict[str, object]] = []
 
     serve(_settings(), run=lambda app, **address: calls.append(address))
+    telemetry = logging.getLogger("edgar_rag.telemetry")
+    for handler in telemetry.handlers[:]:
+        telemetry.removeHandler(handler)
+    telemetry.propagate = True
+    telemetry.setLevel(logging.NOTSET)
 
     assert calls == [{"host": "127.0.0.1", "port": 8000}]
