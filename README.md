@@ -40,6 +40,32 @@ answer it does give names the passage it came from.
     of the passage that actually overlaps the question
 ```
 
+## Try it without a model
+
+```bash
+git lfs install                 # once, before cloning: the CI index and tape live in Git LFS
+uv sync --frozen
+make demo
+```
+
+`make demo` starts the service with `EDGAR_RAG_MODE=replay` and asks it two
+questions. Nothing runs a model: the question embeddings and the generations
+are read from the tape `qwen3:8b` recorded over the dev split's golden set
+(`eval/ci/tape`), while the index (`eval/ci/index`), the search, the gates and
+the citation check run for real. One question is answered with a citation,
+the other declined by the period guard before any model would be asked:
+
+```bash
+curl -s localhost:8077/ask -H 'content-type: application/json' \
+  -d '{"cik": 320193, "fiscal_year": 2025, "question": "How much revenue did Apple report for fiscal year 2025?"}'
+curl -s localhost:8077/ask -H 'content-type: application/json' \
+  -d '{"cik": 320193, "fiscal_year": 2025, "question": "What cash dividends did Apple pay to shareholders in fiscal 2020?"}'
+```
+
+A replayed response says `"replayed": true`. Replay answers only the golden
+set's questions as they are written there (with the default `top_k`); any
+other question gets `404 not recorded`.
+
 ## The guarantee, and what enforces it
 
 Every figure traceable to the passage it cites. That sentence is worth nothing
@@ -252,7 +278,8 @@ to `...`, nothing else changed):
     "form": "10-K",
     "filing_date": "2025-10-31",
     "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
-  }
+  },
+  "replayed": false
 }
 ```
 
@@ -277,7 +304,8 @@ An abstention has no `text`, and says which check withheld the answer:
     "form": "10-K",
     "filing_date": "2025-10-31",
     "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
-  }
+  },
+  "replayed": false
 }
 ```
 

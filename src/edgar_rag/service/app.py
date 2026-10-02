@@ -13,7 +13,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import Annotated, assert_never
+from typing import Annotated, Protocol, assert_never
 
 import anyio
 import httpx
@@ -24,11 +24,21 @@ from fastapi.responses import Response
 from edgar_rag import __version__
 from edgar_rag.answer import Answerer
 from edgar_rag.config import ServiceSettings
-from edgar_rag.domain import Answer, EmbedderSpec, Generation, Generator, RelevanceGate
+from edgar_rag.domain import (
+    Answer,
+    Embedder,
+    EmbedderSpec,
+    Generation,
+    Generator,
+    NotRecorded,
+    RelevanceGate,
+    Scope,
+)
 from edgar_rag.gate import AllOf, BrierGate, CosineGate, NoGate
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import LOWERCASE_INPUT, OllamaEmbedder, OllamaGenerator, OllamaProbe
 from edgar_rag.period import PeriodGuard
+from edgar_rag.prompt import NonceSource
 from edgar_rag.service.failures import (
     IndexUnavailable,
     RequestTimedOut,
@@ -43,6 +53,29 @@ logger = logging.getLogger(__name__)
 # The service answers from an index it loaded itself, and reports its filings
 # and fingerprint, so it needs the concrete index behind the answerer.
 ServedAnswerer = Answerer[CorpusIndex]
+
+
+class RecordedQuestions(Protocol):
+    """The questions a tape holds, each with the nonce its prompt was recorded with."""
+
+    def nonce_for(self, question: str, scope: Scope) -> NonceSource | None:
+        """The recorded nonce for ``question`` about ``scope``; ``None`` when not recorded."""
+        ...
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Replay:
+    """What ``EDGAR_RAG_MODE=replay`` serves from: an index, and the models' recorded replies.
+
+    A recorded prompt carries the nonce of the case it was recorded for, so a
+    question is answered with that nonce, and only a recorded question is
+    answered at all; anything else is 404 (``NotRecorded``).
+    """
+
+    index: CorpusIndex
+    embedder: Embedder
+    generator: Generator
+    questions: RecordedQuestions
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -106,8 +139,13 @@ def _brier(settings: ServiceSettings, fallback: CosineGate, client: httpx.Client
     )
 
 
-def build_answerer(settings: ServiceSettings, client: httpx.Client) -> ServedAnswerer | None:
+def build_answerer(
+    settings: ServiceSettings, client: httpx.Client, replay: Replay | None = None
+) -> ServedAnswerer | None:
     """Read the index and wire the models to ``client``; ``None`` without an index.
+
+    With ``replay``, its index and recorded models are used instead, behind the
+    same gate.
 
     A missing index does not stop the service from starting: ``/health`` says
     so and ``/ask`` answers 503 until the ingest has run and it is restarted.
@@ -119,6 +157,13 @@ def build_answerer(settings: ServiceSettings, client: httpx.Client) -> ServedAns
         IndexFormatError: when the index is in another format, was built with
             another embedder, or does not match its manifest.
     """
+    if replay is not None:
+        return Answerer(
+            index=replay.index,
+            embedder=replay.embedder,
+            generator=replay.generator,
+            gate=build_gate(settings, client),
+        )
     spec = EmbedderSpec(model=settings.embedding_model, lowercase=LOWERCASE_INPUT)
     try:
         index = CorpusIndex.load(settings.index_dir, expect=spec)
@@ -165,13 +210,15 @@ def create_app(
     answerer: ServedAnswerer | None = None,
     *,
     transport: httpx.BaseTransport | None = None,
+    replay: Replay | None = None,
 ) -> FastAPI:
     """Build the service.
 
     ``answerer`` replaces the one built from ``settings``, so a test can
     serve fakes through the real endpoints. ``transport`` is handed to the
     HTTP client the lifespan opens, so a test can stand in for Ollama and
-    brier without a network.
+    brier without a network. ``replay`` serves recorded replies instead of
+    Ollama, and answers only the questions it recorded.
     """
     config = settings if settings is not None else ServiceSettings()
 
@@ -180,7 +227,7 @@ def create_app(
         with httpx.Client(transport=transport) as client:
             app.state.settings = config
             app.state.http = client
-            built = answerer if answerer is not None else build_answerer(config, client)
+            built = answerer if answerer is not None else build_answerer(config, client, replay)
             app.state.answerer = (
                 None
                 if built is None
@@ -188,6 +235,7 @@ def create_app(
             )
             app.state.fingerprint = None if built is None else index_fingerprint(built.index)
             app.state.ollama = OllamaProbe(str(config.ollama_base_url), client)
+            app.state.recorded = None if replay is None else replay.questions
             yield
 
     app = FastAPI(title="edgar-rag", version=__version__, lifespan=lifespan)
@@ -252,13 +300,14 @@ router = APIRouter()
 
 @router.get("/health")
 def health(request: Request) -> dict[str, object]:
-    """The filings indexed, the index's fingerprint, and whether Ollama answers."""
+    """The filings indexed, the index's fingerprint, and whether Ollama answers (live only)."""
     state = request.app.state
     answerer: ServedAnswerer | None = state.answerer
     ollama: OllamaProbe = state.ollama
     filings = answerer.index.filings if answerer is not None else ()
     return {
         "status": "ready" if answerer is not None else "no index",
+        "mode": "live" if state.recorded is None else "replay",
         "filings": [
             {
                 "cik": filing.cik,
@@ -270,7 +319,8 @@ def health(request: Request) -> dict[str, object]:
         ],
         "chunks": answerer.index.chunk_count if answerer is not None else 0,
         "fingerprint": state.fingerprint,
-        "ollama_reachable": ollama.reachable(),
+        # A replay never calls Ollama, so whether it answers says nothing.
+        "ollama_reachable": ollama.reachable() if state.recorded is None else None,
     }
 
 
@@ -290,6 +340,9 @@ async def ask(
     budget = request.app.state.settings.request_timeout_seconds
     stages = StageTimer()
     request.state.stages, request.state.top_k = stages, question.top_k
+    recorded: RecordedQuestions | None = request.app.state.recorded
+    if recorded is not None:
+        answerer = _replaying(answerer, recorded, question)
     work = partial(
         answerer.ask, question.question, question.scope(), top_k=question.top_k, stages=stages
     )
@@ -299,13 +352,30 @@ async def ask(
     except TimeoutError as error:
         raise RequestTimedOut(f"no answer within {budget} s") from error
     request.state.answer = answer
-    return AskResponse.of(answer)
+    return AskResponse.of(answer, replayed=recorded is not None)
+
+
+def _replaying(
+    answerer: ServedAnswerer, recorded: RecordedQuestions, question: AskRequest
+) -> ServedAnswerer:
+    """The answerer with the nonce ``question`` was recorded with.
+
+    Raises:
+        NotRecorded: when the tape does not hold the question.
+    """
+    nonce = recorded.nonce_for(question.question, question.scope())
+    if nonce is None:
+        raise NotRecorded("the question is not one the tape recorded")
+    return dataclasses.replace(answerer, nonce=nonce)
 
 
 def serve(
-    settings: ServiceSettings | None = None, *, run: Callable[..., object] = uvicorn.run
+    settings: ServiceSettings | None = None,
+    *,
+    run: Callable[..., object] = uvicorn.run,
+    replay: Replay | None = None,
 ) -> None:
     """Run the service on the configured address, 127.0.0.1:8000 by default."""
     config = settings if settings is not None else ServiceSettings()
     write_to_stderr()
-    run(create_app(config), host=config.host, port=config.port)
+    run(create_app(config, replay=replay), host=config.host, port=config.port)
