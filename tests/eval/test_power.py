@@ -120,6 +120,7 @@ def test_the_command_prints_every_comparison(capsys):
     for label in (
         "FAR of one arm, n=300",
         "H1 FAR(A)-FAR(F)",
+        "H1 MDE at 80% power, lower bound above 5.0 p.p.",
         "H2 MDE",
         "97.5% CI",
         "99.0% CI",

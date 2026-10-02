@@ -2,6 +2,7 @@ import random
 
 import pytest
 
+from edgar_rag.eval.metrics import Estimate
 from edgar_rag.eval.records import (
     BrierInfo,
     ModelInfo,
@@ -12,14 +13,14 @@ from edgar_rag.eval.records import (
     write_jsonl,
     write_manifest,
 )
-from edgar_rag.eval.report import ReportOptions, build_report
+from edgar_rag.eval.report import ReportOptions, build_report, h1_reading
 from tests.eval.harness_fakes import record
 
 KINDS = ("wrong_year", "other_company", "unreported_concept", "off_domain")
 FAST = ReportOptions(resamples=200)
 
 
-def _records(*, folds: bool, brier: bool, seed: int = 7):
+def _records(*, folds: bool, brier: bool, seed: int = 7, false_answers: float = 0.4):
     """Eight companies, each with answerable and unanswerable cases scored by every gate."""
     rng = random.Random(seed)
     rows = []
@@ -29,7 +30,7 @@ def _records(*, folds: bool, brier: bool, seed: int = 7):
             answerable = i < 6
             kind = None if answerable else KINDS[i % 4]
             cosine = rng.uniform(0.5, 1.0) if answerable else rng.uniform(0.2, 0.8)
-            answered = rng.random() < (0.9 if answerable else 0.4)
+            answered = rng.random() < (0.9 if answerable else false_answers)
             right = answerable and answered and rng.random() < 0.8
             rows.append(
                 record(
@@ -81,8 +82,10 @@ def _manifest(*, split="eval", brier=True, mode="record", cases=96, repeats=0):
     )
 
 
-def _run(*, folds=True, brier=True, split="eval", mode="record", repeats=(), extra=()):
-    cases = _records(folds=folds, brier=brier) + tuple(extra)
+def _run(
+    *, folds=True, brier=True, split="eval", mode="record", repeats=(), extra=(), false_answers=0.4
+):
+    cases = _records(folds=folds, brier=brier, false_answers=false_answers) + tuple(extra)
     manifest = _manifest(split=split, brier=brier, mode=mode, cases=len(cases))
     return Run(manifest=manifest, cases=cases, repeats=tuple(repeats))
 
@@ -107,16 +110,40 @@ def test_each_comparison_prints_its_interval_and_mde():
 
     assert "H1, FAR(A) - FAR(F) on 48 negatives" in text
     assert "H2, FAR(E) - FAR(F), paired" in text
-    assert "97.5% CI" in text
+    assert "99.0% CI" in text  # the protocol's calibrated level is the default
     assert text.count("MDE at 80% power") >= 4
     assert "AUROC(brier) - AUROC(cosine)" in text
     assert "not distinguishable at this n" in text
 
 
 def test_the_confirmatory_level_is_an_option():
-    text = build_report(_run(), ReportOptions(confirmatory_confidence=0.99, resamples=200))
+    text = build_report(_run(), ReportOptions(confirmatory_confidence=0.975, resamples=200))
 
-    assert "99.0% CI" in text
+    assert "97.5% CI" in text
+
+
+def _estimate(low: float, high: float) -> Estimate:
+    return Estimate(point=(low + high) / 2, low=low, high=high, confidence=0.99)
+
+
+@pytest.mark.parametrize(
+    ("low", "high", "far_a", "reading"),
+    [
+        (0.06, 0.15, 0.30, "above the margin"),
+        (0.00, 0.03, 0.04, "not attainable"),
+        (0.00, 0.04, 0.20, "below the margin"),
+        (0.03, 0.09, 0.20, "inconclusive at this n"),
+    ],
+)
+def test_h1_is_read_against_the_margin_in_one_of_four_ways(low, high, far_a, reading):
+    assert h1_reading(_estimate(low, high), far_a).startswith(reading)
+
+
+def test_when_the_model_rarely_answers_h1_is_reported_as_not_attainable():
+    text = build_report(_run(false_answers=0.02), FAST)
+
+    assert "Reading: not attainable: arm A answers" in text
+    assert "a gate cannot remove answers the model does not give" in text
 
 
 def test_without_brier_its_arms_are_printed_as_not_run():

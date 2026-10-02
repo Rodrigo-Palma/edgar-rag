@@ -45,7 +45,10 @@ from edgar_rag.eval.summary import (
     recall_cost_values,
 )
 
-DEFAULT_CONFIRMATORY_CONFIDENCE = 0.975
+# Nominal level of the confirmatory intervals. The protocol wants 97.5% (Bonferroni
+# over H1 and H2); with 10 companies per fold the 97.5% percentile interval covered
+# only 0.94-0.96 in simulation, and the 99% one covers 0.96-0.98 (docs/eval/protocol.md).
+DEFAULT_CONFIRMATORY_CONFIDENCE = 0.99
 H1_MARGIN = 0.05
 RECALL_COST_CEILING = 0.12
 STAGES = ("embed", "search", "gate", "generate")
@@ -222,6 +225,25 @@ def _difference(diff: Difference, confidence: float) -> str:
     )
 
 
+def h1_reading(difference: Estimate, far_a: float, margin: float = H1_MARGIN) -> str:
+    """The pre-registered reading of FAR(A) - FAR(F) against the margin of interest.
+
+    A gate only removes answers arm A gave, so the difference can never exceed
+    FAR(A). When arm A's own rate is under the margin the hypothesis cannot be
+    met by any gate, and the report says so instead of leaving a bare "not met".
+    """
+    if difference.low > margin:
+        return f"above the margin: the lower bound clears {pct(margin)}"
+    if far_a < margin:
+        return (
+            f"not attainable: arm A answers {pct(far_a)} of unanswerable questions, under "
+            f"the {pct(margin)} margin, and a gate cannot remove answers the model does not give"
+        )
+    if difference.high < margin:
+        return f"below the margin: the upper bound is under {pct(margin)}"
+    return f"inconclusive at this n: the interval contains {pct(margin)}"
+
+
 def _confirmatory(
     e2e: list[CaseRecord], thresholds: dict[str, Threshold], options: ReportOptions
 ) -> str:
@@ -237,8 +259,10 @@ def _confirmatory(
         recall_cost_values(f, positives, thresholds), positives, level, options.resamples
     )
     passes = h1.difference.estimate.low > H1_MARGIN and cost.estimate.high <= RECALL_COST_CEILING
+    far_a = float(answered(a, negatives, thresholds).mean())
     lines += [
         f"H1, FAR(A) - FAR(F) on {len(negatives)} negatives: {_difference(h1.difference, level)} "
+        f"Reading: {h1_reading(h1.difference.estimate, far_a)}. "
         f"Recall cost of F: {_difference(cost, level)} "
         f"Criterion (lower bound above {pct(H1_MARGIN)}, recall cost upper bound at most "
         f"{pct(RECALL_COST_CEILING)}): {'met' if passes else 'not met'}.",

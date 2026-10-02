@@ -31,7 +31,7 @@ from edgar_rag.eval.metrics import auroc, normal_quantile, wilson_interval
 CONFIRMATORY_CONFIDENCE = 0.975  # Bonferroni over the two confirmatory hypotheses
 TARGET_POWER = 0.80
 H1_MARGIN = 0.05
-H1_EFFECTS = (0.05, 0.075, 0.10)
+H1_EFFECTS = (0.05, 0.075, 0.10, 0.115, 0.125)
 H2_EFFECTS = (0.0, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08)
 # Nominal level whose percentile interval reached ~97.5% coverage in this design's
 # simulation (the 97.5% percentile interval covered ~95%). See ``build_report``.
@@ -272,15 +272,22 @@ def _wilson_rows(n_negatives: int, per_subtype: int, n_positives: int) -> list[s
 
 
 def _h1_rows(design: Design) -> list[str]:
-    rows = []
-    for effect in H1_EFFECTS:
-        h1 = simulate_nested_difference(effect, design)
-        above_margin = h1.share_with_low_above(H1_MARGIN)
-        rows.append(
-            f"| H1 FAR(A)-FAR(F) at {_pp(effect)} | nested, {design.confidence:.1%} CI | "
-            f"half-width ±{_pp(h1.mean_half_width)}, coverage {h1.coverage:.3f}, "
-            f"P(low>0) {h1.power:.2f}, P(low>{_pp(H1_MARGIN)}) {above_margin:.2f} |"
-        )
+    """H1 over a grid; its power is the share of lower bounds above the margin."""
+    level = f"{design.confidence:.1%} CI"
+    simulations = [
+        simulate_nested_difference(effect, design, margin=H1_MARGIN) for effect in H1_EFFECTS
+    ]
+    rows = [
+        f"| H1 FAR(A)-FAR(F) at {_pp(h1.true_difference)} | nested, {level} | "
+        f"half-width ±{_pp(h1.mean_half_width)}, coverage {h1.coverage:.3f}, "
+        f"P(low>0) {h1.share_with_low_above(0.0):.2f}, P(low>{_pp(H1_MARGIN)}) {h1.power:.2f} |"
+        for h1 in simulations
+    ]
+    mde = minimum_detectable(simulations)
+    rows.append(
+        f"| H1 MDE at {TARGET_POWER:.0%} power, lower bound above {_pp(H1_MARGIN)} | "
+        f"nested, {level} | {_pp(mde) if mde is not None else 'above the grid'} |"
+    )
     return rows
 
 
@@ -334,10 +341,12 @@ def build_report(
 ) -> str:
     """The power table as markdown, assumptions first.
 
-    The H2 grid runs twice: at the nominal confirmatory level, and at
+    The H1 and H2 grids run twice: at the nominal confirmatory level, and at
     ``calibrated_confidence``. With 10 companies per fold the percentile interval
     is too narrow, so the nominal run shows the test's real size and the
     calibrated run shows the power the analysis has once its size is honest.
+    H1's power is that of the pre-registered margin rule (lower bound above
+    ``H1_MARGIN``); its share of lower bounds above zero is printed beside it.
     """
     header = [
         f"Design: {design.n_companies} companies x {design.negatives_per_company} negatives "
@@ -351,6 +360,7 @@ def build_report(
     body = (
         _wilson_rows(design.n_negatives, per_subtype, n_positives)
         + _h1_rows(design)
+        + _h1_rows(replace(design, confidence=calibrated_confidence))
         + _h2_rows(design, worse_rate)
         + _h2_rows(replace(design, confidence=calibrated_confidence), worse_rate)
         + _auroc_rows(design, gate_per_class, area)
