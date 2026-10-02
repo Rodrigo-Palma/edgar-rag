@@ -6,7 +6,8 @@
 ## Context
 
 The [protocol](../eval/protocol.md) fixed, before the headline run, what its
-results decide (section 9). Brier stays as an optional plugin only if all three
+results decide (section 9) about [brier](https://github.com/Rodrigo-Palma/brier), the relevance model
+pinned at [`d70e7df`](https://github.com/Rodrigo-Palma/brier/tree/d70e7df9b0b4f765e2d533c7bc9dd532155916e5). Brier stays as an optional plugin only if all three
 hold: (1) H2 met, the upper bound of the 99% interval of FAR(E) - FAR(F) below
 0; (2) the lower bound of the 95% interval of the gate-only ΔAUROC (C - B)
 above 0; (3) E's recall cost not above F's by more than 2 p.p. The default gate

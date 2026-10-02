@@ -19,7 +19,7 @@ before the run ([addendum](docs/eval/report-v1-addendum.md)):
 > +2.2 p.p.].
 
 So the service ships with no gate, H2 was not met, and the relevance model it
-started from was removed
+started from ([brier](https://github.com/Rodrigo-Palma/brier), archived) was removed
 ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
 
 <img src="docs/media/demo.gif" alt="A tour in six scenes, replayed with no model: a cited answer, an out_of_period decline before the model, a model_declined refusal, make eval rebuilding the report unchanged, make result printing the six arms and the H1 and H2 readings, and make eval-ci passing" width="820">
@@ -287,7 +287,8 @@ replaced by LLY and PEP from the reserve list, in order, before any
 generation. Energy is left with CVX alone; no hypothesis is by sector
 ([protocol](docs/eval/protocol.md), section 11, D-01).
 
-**The relevance model lost.** brier ranked worse than cosine on the gate-only
+**The relevance model lost.** [brier](https://github.com/Rodrigo-Palma/brier) (code at
+[`d70e7df`](https://github.com/Rodrigo-Palma/brier/tree/d70e7df9b0b4f765e2d533c7bc9dd532155916e5)) ranked worse than cosine on the gate-only
 tier and did not beat it behind the guard (H2 not met). By the rule fixed
 before the run it was removed; its scores stay published in the report
 ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
