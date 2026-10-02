@@ -3,7 +3,7 @@
 A replay is deterministic: the same code, index and tape give the same
 record for every case. So a case whose result changed did so because the
 code changed, and there is no run-to-run noise to allow for. The rule
-(protocol plan, section 1, line 5):
+(protocol plan, section 1, line 5, with decision D-05):
 
 * every case is judged, under each arm the CI can run without brier, as
   right or wrong. An end-to-end case is right when the arm answers an
@@ -13,14 +13,28 @@ code changed, and there is no run-to-run noise to allow for. The rule
   generation, so it is right when the arm's gate admits an answerable case
   or declines an unanswerable one; arm A has no gate and is not judged there;
 * cases are grouped by tier and class (answerable, or the kind of
-  unanswerable); within a group and an arm, a case going from right to wrong
-  is worse and from wrong to right is better;
+  unanswerable), and every unanswerable case is also counted in its tier's
+  ``unanswerable`` group, the unit of the false-answer rate, so a worsening
+  spread over several kinds cannot pass under each kind's limit. Answerable is
+  one class already, and there is no group of all cases: a lost answer and a
+  newly refused negative would cancel there. Within a group and an arm, a case
+  going from right to wrong is worse and from wrong to right is better;
 * the gate fails on a net worsening of ``NET_CHANGE_LIMIT`` cases or more in
   any group and arm, and on a net improvement as large, which has to be
   written into the baseline in the same pull request
   (``make eval-ci-baseline``) so a later regression cannot hide behind it.
   It also fails when the cases or the cosine threshold are not the ones the
   baseline judged. A call missing from the tape fails earlier, in the replay.
+* a change of ``outcome`` that leaves the case right, or wrong
+  (``model_declined`` becoming ``no_valid_citation``), does not fail: the gate
+  guards quality, and the reason a client sees is guarded by the contract
+  tests. It is printed as a transition matrix and counted in a warning.
+
+The gates' own decisions are outside what this judges, by design: the run
+records every gate's raw score (cosine is asked with a threshold of 0) and
+the arms are recomputed here from the scores. A bug in how a gate compares
+its score to its threshold is left to the unit tests and to ``make demo``,
+which asserts one cited answer and one ``out_of_period`` decline.
 
 The cosine threshold is the service's default, so the arms are judged as
 the service would answer. Passing means none of these cases got worse; with
@@ -48,6 +62,7 @@ GATE_ARMS = ("B", "D", "F")
 UPDATE = "run `make eval-ci-baseline` and commit eval/ci/baseline.json in this pull request"
 
 Tier = Literal["e2e", "gate-only"]
+UNANSWERABLE = "unanswerable"
 
 
 class JudgedCase(BaseModel):
@@ -120,6 +135,9 @@ class Verdict:
     worse: dict[Group, list[str]] = field(default_factory=dict)
     better: dict[Group, list[str]] = field(default_factory=dict)
     failures: tuple[str, ...] = ()
+    transitions: dict[tuple[str, str], int] = field(default_factory=dict)
+    silent_transitions: int = 0
+    """Cases whose outcome changed while every arm judged them as before."""
 
     @property
     def passed(self) -> bool:
@@ -134,13 +152,19 @@ def compare(baseline: Baseline, current: Baseline) -> Verdict:
     before = {case.id: case for case in baseline.cases}
     worse: dict[Group, list[str]] = {}
     better: dict[Group, list[str]] = {}
+    transitions: Counter[tuple[str, str]] = Counter()
+    silent = 0
     for case in current.cases:
         old = before[case.id]
+        if old.outcome != case.outcome:
+            transitions[(old.outcome, case.outcome)] += 1
+            silent += old.right == case.right
         for arm in E2E_ARMS if case.tier == "e2e" else GATE_ARMS:
             was, now = arm in old.right, arm in case.right
             if was != now:
                 target = worse if was else better
-                target.setdefault((case.tier, case.label, arm), []).append(case.id)
+                for label in _labels(case):
+                    target.setdefault((case.tier, label, arm), []).append(case.id)
     failures = []
     for group in sorted(worse.keys() | better.keys()):
         net = len(worse.get(group, [])) - len(better.get(group, []))
@@ -148,7 +172,18 @@ def compare(baseline: Baseline, current: Baseline) -> Verdict:
             failures.append(f"net worsening of {net} cases in {_name(group)} (limit {_limit()})")
         elif -net >= NET_CHANGE_LIMIT:
             failures.append(f"net improvement of {-net} cases in {_name(group)}: {UPDATE}")
-    return Verdict(worse=worse, better=better, failures=tuple(failures))
+    return Verdict(
+        worse=worse,
+        better=better,
+        failures=tuple(failures),
+        transitions=dict(sorted(transitions.items())),
+        silent_transitions=silent,
+    )
+
+
+def _labels(case: JudgedCase) -> tuple[str, ...]:
+    """The groups a case counts in: its class, and the aggregate when it is unanswerable."""
+    return (case.label,) if case.label == "answerable" else (case.label, UNANSWERABLE)
 
 
 def _stale(baseline: Baseline, current: Baseline) -> tuple[str, ...]:
@@ -197,6 +232,16 @@ def render(verdict: Verdict, current: Baseline, examples: int = 5) -> str:
         lines.append("")
     elif verdict.passed:
         lines += ["Every case judged as in the baseline, under every arm.", ""]
+    if verdict.transitions:
+        lines += [
+            f"Outcome changes ({verdict.silent_transitions} of them left the case judged as "
+            "before; those do not fail the gate):",
+            "",
+            "| from | to | cases |",
+            "|---|---|---|",
+        ]
+        lines += [f"| {old} | {new} | {n} |" for (old, new), n in verdict.transitions.items()]
+        lines.append("")
     lines += [_widths(current.cases), ""]
     if verdict.passed:
         lines.append(f"PASS: no group changed by a net {NET_CHANGE_LIMIT} cases or more.")

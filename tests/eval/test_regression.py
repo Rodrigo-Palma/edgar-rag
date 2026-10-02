@@ -92,6 +92,43 @@ def test_an_end_to_end_case_whose_generation_disappears_is_judged_end_to_end_as_
     assert verdict.worse[("e2e", "answerable", "A")] == ["p"]
 
 
+def _negative(case_id: str, kind: str, outcome: str = "model_declined"):
+    return record(case_id, answerable=False, cosine=0.8, outcome=outcome, negative_kind=kind)
+
+
+def test_a_worsening_spread_over_unanswerable_kinds_fails_on_their_aggregate():
+    """Mutation E1: 2 off-domain and 2 other-company questions newly answered."""
+    kinds = ("off_domain", "off_domain", "other_company", "other_company")
+    before = [_negative(f"n{i}", kind) for i, kind in enumerate(kinds)]
+    after = [_negative(f"n{i}", kind, outcome="answered") for i, kind in enumerate(kinds)]
+
+    verdict = compare(_baseline(before), _baseline(after))
+
+    assert not verdict.passed
+    assert any(
+        "net worsening of 4 cases in e2e unanswerable under arm F" in f for f in verdict.failures
+    )
+    assert not any("off_domain" in failure for failure in verdict.failures)
+
+
+def test_answerable_cases_get_no_aggregate_row():
+    verdict = compare(_baseline([_correct("p")]), _baseline([_correct("p", numeric_correct=False)]))
+
+    assert {group[1] for group in verdict.worse} == {"answerable"}
+
+
+def test_an_outcome_change_that_keeps_the_case_right_is_reported_not_failed():
+    before = [_negative(f"n{i}", "off_domain") for i in range(5)]
+    after = [_negative(f"n{i}", "off_domain", outcome="no_valid_citation") for i in range(5)]
+
+    verdict = compare(_baseline(before), _baseline(after))
+    text = render(verdict, _baseline(after))
+
+    assert verdict.passed
+    assert verdict.silent_transitions == 5
+    assert "| model_declined | no_valid_citation | 5 |" in text
+
+
 def test_the_same_run_passes_with_nothing_changed():
     cases = [_correct("p"), _wrong_year("n")]
 
@@ -114,9 +151,9 @@ def test_a_net_worsening_at_the_limit_fails_naming_the_group():
     verdict = compare(baseline, current)
 
     assert not verdict.passed
-    assert (
-        f"net worsening of {NET_CHANGE_LIMIT} cases in e2e wrong_year under arm D"
-        in (verdict.failures[0])
+    assert any(
+        f"net worsening of {NET_CHANGE_LIMIT} cases in e2e wrong_year under arm D" in failure
+        for failure in verdict.failures
     )
 
 
@@ -256,6 +293,16 @@ def test_the_command_fails_on_a_regression(tmp_path, capsys):
 
     assert _ci("--run", after, "--baseline", baseline) == 1
     assert "FAIL: net worsening of 3 cases in e2e wrong_year" in capsys.readouterr().out
+
+
+def test_the_command_warns_about_outcome_changes_that_keep_cases_right(tmp_path, capsys):
+    before = _write_run(tmp_path / "before", [_negative("n", "off_domain")])
+    after = _write_run(tmp_path / "after", [_negative("n", "off_domain", "no_valid_citation")])
+    baseline = tmp_path / "baseline.json"
+    _ci("--run", before, "--baseline", baseline, "--write")
+
+    assert _ci("--run", after, "--baseline", baseline) == 0
+    assert "::warning title=eval gate::1 cases changed outcome" in capsys.readouterr().out
 
 
 def test_the_command_judges_only_a_replay(tmp_path, capsys):

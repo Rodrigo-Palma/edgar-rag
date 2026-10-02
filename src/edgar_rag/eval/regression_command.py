@@ -59,6 +59,12 @@ def run(args: argparse.Namespace) -> int:
         return _fail(f"{args.baseline} is not a baseline: {error}")
     verdict = compare(baseline, current)
     sys.stdout.write(render(verdict, current))
+    if verdict.silent_transitions:
+        # A GitHub Actions workflow command: a yellow annotation on the run.
+        print(
+            f"::warning title=eval gate::{verdict.silent_transitions} cases changed outcome "
+            "and are judged as before; see the transition matrix in the summary"
+        )
     return 0 if verdict.passed else FAILED
 
 

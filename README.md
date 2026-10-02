@@ -363,7 +363,12 @@ of them end to end) from the tape and judges each case against
 Replay is deterministic, so a case that changed did so because the code did.
 Each case is right or wrong under each arm the CI can run (no gate, cosine,
 period guard, guard and cosine, at the service's default threshold), and the
-job fails when any tier, class and arm loses 3 or more cases net. A net gain
+job fails when any tier, class and arm loses 3 or more cases net. Every
+unanswerable case also counts in its tier's `unanswerable` group, the unit of
+the false-answer rate, so 2 off-domain and 2 other-company questions newly
+answered fail together. A change of outcome that leaves a case right (a
+refusal reported under another reason) is listed and warned about, not
+failed: the reason a client sees is held by the contract tests. A net gain
 as large fails too until `make eval-ci-baseline` writes it into the baseline
 in the same pull request, so a later regression cannot hide behind it. A
 prompt or passage the tape never recorded fails the replay itself;

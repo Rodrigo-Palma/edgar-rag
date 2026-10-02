@@ -74,9 +74,17 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      # The verdict goes to the job summary; workflow commands (::warning::)
+      # go to the log, where the runner turns them into annotations.
       - name: replay the dev split and judge it against eval/ci/baseline.json
         shell: bash
-        run: make eval-ci | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          set +e
+          make eval-ci > "$RUNNER_TEMP/eval-ci.md"
+          status=$?
+          cat "$RUNNER_TEMP/eval-ci.md"
+          grep -v '^::' "$RUNNER_TEMP/eval-ci.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
       - name: make demo answers one question and declines the other without a model
         run: make demo
 
