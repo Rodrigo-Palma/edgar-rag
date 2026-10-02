@@ -8,7 +8,7 @@
 # through an ARG so that Dependabot (docker ecosystem) can read and bump them.
 # The python image appears twice; the two lines move together.
 
-FROM ghcr.io/astral-sh/uv:0.10.10@sha256:cbe0a44ba994e327b8fe7ed72beef1aaa7d2c4c795fd406d1dbf328bacb2f1c5 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.22@sha256:f513a91fc62fe7c17567eee97230dd198e43edb8a9fbecca843714a4358fe1bc AS uv
 
 # --- build: resolve nothing, install exactly what uv.lock pins ---------------
 FROM python:3.13-slim@sha256:8296499feed1c18bd8064c279d45e2a1b4b6be586f8b9e16dcf2aaf843480d88 AS build
