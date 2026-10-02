@@ -8,7 +8,8 @@ code changed, and there is no run-to-run noise to allow for. The rule
 * every case is judged, under each arm the CI can run without brier, as
   right or wrong. An end-to-end case is right when the arm answers an
   answerable case correctly (the gold value, from a passage that prints it)
-  or does not answer an unanswerable one. A gate-only case has no
+  or does not answer an unanswerable one; an end-to-end case the model was
+  not asked about did not answer. A gate-only case has no
   generation, so it is right when the arm's gate admits an answerable case
   or declines an unanswerable one; arm A has no gate and is not judged there;
 * cases are grouped by tier and class (answerable, or the kind of
@@ -82,7 +83,10 @@ def _admits(arm: Arm, record: CaseRecord, cosine_threshold: float) -> bool:
 
 def judge(record: CaseRecord, cosine_threshold: float) -> JudgedCase:
     """Which arms get ``record`` right, by the rule in the module docstring."""
-    tier: Tier = "e2e" if record.generated else "gate-only"
+    # The golden set decides the tier, never what the run did: an end-to-end
+    # case the pipeline stopped generating for stays end to end, and counts as
+    # not answered, instead of moving to the tier judged on admission alone.
+    tier: Tier = "e2e" if record.e2e else "gate-only"
     right: list[str] = []
     for key in E2E_ARMS if tier == "e2e" else GATE_ARMS:
         admitted = _admits(ARM_BY_KEY[key], record, cosine_threshold)

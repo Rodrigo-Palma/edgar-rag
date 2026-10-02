@@ -81,6 +81,17 @@ def test_narratives_are_not_part_of_the_ci_tier():
     assert len(judge_all([narrative], THRESHOLD)) == 0
 
 
+def test_an_end_to_end_case_whose_generation_disappears_is_judged_end_to_end_as_worse():
+    """A pipeline that stops asking the model must not move cases to the gate-only tier."""
+    skipped = _correct("p", generated=False, outcome="scored_only")
+
+    judged = judge(skipped, THRESHOLD)
+    verdict = compare(_baseline([_correct("p")]), _baseline([skipped]))
+
+    assert (judged.tier, judged.right) == ("e2e", ())
+    assert verdict.worse[("e2e", "answerable", "A")] == ["p"]
+
+
 def test_the_same_run_passes_with_nothing_changed():
     cases = [_correct("p"), _wrong_year("n")]
 
