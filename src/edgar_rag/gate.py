@@ -234,14 +234,6 @@ class BrierGate:
             scores={BRIER: round(best, 4)},
         )
 
-    def confidence_for(self, question: str, passage: str) -> float:
-        """The raw probability for one passage, for sweeping the threshold.
-
-        Raises:
-            GateError: when the service is unreachable.
-        """
-        return self._confidence(question, passage)
-
     def _confidence(self, question: str, passage: str) -> float:
         """The probability the model puts on "yes"."""
         payload = {

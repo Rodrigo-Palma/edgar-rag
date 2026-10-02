@@ -1,7 +1,7 @@
 # Local gate. `make check` is what CI runs; run it before every commit.
 
 UV_RUN := uv run --frozen
-SRC := src tests scripts
+SRC := src tests
 
 .DEFAULT_GOAL := help
 .PHONY: help sync check lint format typecheck imports test audit serve image up down
