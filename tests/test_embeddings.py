@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from edgar_rag import embeddings
-from edgar_rag.embeddings import ModelError, OllamaEmbedder, OllamaGenerator
+from edgar_rag.embeddings import ModelError, OllamaEmbedder, OllamaGenerator, OllamaProbe
 
 
 def _reply(monkeypatch, payload: dict) -> list[dict]:
@@ -184,3 +184,57 @@ def test_a_client_that_cannot_connect_is_a_model_error():
 
     with httpx.Client(transport=httpx.MockTransport(refuse)) as client, pytest.raises(ModelError):
         OllamaEmbedder("http://ollama.test", "nomic", client=client).embed(("a",))
+
+
+class ManualClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _version_server(*statuses: int) -> tuple[httpx.Client, list[str]]:
+    """Ollama answering /api/version with each status in turn, the last one after."""
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        status = statuses[min(len(asked), len(statuses)) - 1]
+        return httpx.Response(status, json={"version": "0.18.0"})
+
+    return httpx.Client(transport=httpx.MockTransport(handler)), asked
+
+
+def test_the_probe_asks_ollama_for_its_version():
+    client, asked = _version_server(200)
+
+    with client:
+        assert OllamaProbe("http://ollama.test/", client).reachable() is True
+
+    assert asked == ["/api/version"]
+
+
+def test_the_probe_reuses_its_answer_for_ten_seconds():
+    """/health may be polled every second; Ollama is asked at most every ten."""
+    clock = ManualClock()
+    client, asked = _version_server(200, 500)
+
+    with client:
+        probe = OllamaProbe("http://ollama.test", client, clock=clock)
+        first = probe.reachable()
+        clock.now = 9.9
+        cached = probe.reachable()
+        clock.now = 10.0
+        fresh = probe.reachable()
+
+    assert (first, cached, fresh) == (True, True, False)
+    assert len(asked) == 2
+
+
+def test_an_ollama_that_cannot_be_reached_is_reported_not_raised():
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(refuse)) as client:
+        assert OllamaProbe("http://ollama.test", client).reachable() is False

@@ -10,6 +10,7 @@ from edgar_rag.api import build_gate, create_app, serve
 from edgar_rag.config import ServiceSettings
 from edgar_rag.embeddings import ModelError
 from edgar_rag.gate import BrierGate, CosineGate, GateError
+from edgar_rag.index import FilingIndex
 from tests.fakes import ON_TOPIC, fake_answerer
 
 
@@ -166,17 +167,74 @@ def test_a_degraded_brier_answer_tells_the_client_nothing_about_the_brier_host(i
     _assert_no_topology(response.text)
 
 
+def _ollama_answering(status: int, asked: list[str] | None = None) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if asked is not None:
+            asked.append(request.url.path)
+        return httpx.Response(status, json={"version": "0.18.0"})
+
+    return httpx.MockTransport(handler)
+
+
 def test_health_says_which_filing_is_indexed(index, tmp_path):
     index.save(tmp_path)
-    with TestClient(create_app(_settings(index_dir=tmp_path))) as client:
+    app = create_app(_settings(index_dir=tmp_path), transport=_ollama_answering(200))
+    with TestClient(app) as client:
         body = client.get("/health").json()
 
     assert body["status"] == "ready"
     assert body["chunks"] == 2
+    assert body["indexed_filing"] == {"company": "Example Inc"}
+    assert body["ollama_reachable"] is True
+
+
+def test_health_carries_the_fingerprint_of_the_loaded_index(index, tmp_path):
+    """Which embedding model, how many dimensions, and a digest of the vectors."""
+    index.save(tmp_path)
+    app = create_app(_settings(index_dir=tmp_path), transport=_ollama_answering(200))
+    with TestClient(app) as client:
+        fingerprint = client.get("/health").json()["fingerprint"]
+
+    assert fingerprint["embedding_model"] == "nomic-embed-text"
+    assert fingerprint["dimensions"] == 2
+    assert len(fingerprint["digest"]) == 16
+
+
+def test_the_fingerprint_changes_with_the_vectors(index, tmp_path):
+    first, second = tmp_path / "first", tmp_path / "second"
+    index.save(first)
+    FilingIndex(index.source, index.chunks, index.vectors[::-1].copy()).save(second)
+
+    def digest(directory) -> str:
+        app = create_app(_settings(index_dir=directory), transport=_ollama_answering(200))
+        with TestClient(app) as client:
+            return client.get("/health").json()["fingerprint"]["digest"]
+
+    assert digest(first) != digest(second)
+
+
+def test_health_says_when_ollama_cannot_be_reached(index):
+    app = create_app(_settings(), fake_answerer(index), transport=_ollama_answering(500))
+    with TestClient(app) as client:
+        body = client.get("/health").json()
+
+    assert body["status"] == "ready"
+    assert body["ollama_reachable"] is False
+
+
+def test_health_asks_ollama_once_for_polls_within_ten_seconds(index):
+    asked: list[str] = []
+    app = create_app(_settings(), fake_answerer(index), transport=_ollama_answering(200, asked))
+    with TestClient(app) as client:
+        for _ in range(5):
+            client.get("/health")
+
+    assert asked == ["/api/version"]
 
 
 def test_health_reports_a_missing_index_instead_of_failing(tmp_path):
-    with TestClient(create_app(_settings(index_dir=tmp_path))) as client:
+    app = create_app(_settings(index_dir=tmp_path), transport=_ollama_answering(200))
+    with TestClient(app) as client:
         response = client.get("/health")
 
     assert response.status_code == 200
@@ -184,6 +242,7 @@ def test_health_reports_a_missing_index_instead_of_failing(tmp_path):
     assert body["status"] == "no index"
     assert body["indexed_filing"] is None
     assert body["chunks"] == 0
+    assert body["fingerprint"] is None
 
 
 def test_ask_without_an_index_is_unavailable_not_a_crash(tmp_path):

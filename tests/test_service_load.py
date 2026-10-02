@@ -178,7 +178,11 @@ def _telemetry(caplog) -> list[dict[str, object]]:
 
 def test_every_request_is_logged_as_one_line_of_json(index, caplog):
     """Stages, reason and degraded per request, the 4xx included (ADR 0012)."""
-    app = create_app(ServiceSettings(min_retrieval_score=0.5), fake_answerer(index))
+    app = create_app(
+        ServiceSettings(min_retrieval_score=0.5),
+        fake_answerer(index),
+        transport=httpx.MockTransport(_fake_ollama),
+    )
 
     with caplog.at_level(logging.INFO, logger="edgar_rag.telemetry"), TestClient(app) as client:
         client.post("/ask", json={"question": ON_TOPIC, "top_k": 2})

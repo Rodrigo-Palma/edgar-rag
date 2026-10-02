@@ -7,6 +7,7 @@ the endpoints only read what it put in ``app.state``. Run it with
 """
 
 import dataclasses
+import hashlib
 import logging
 import threading
 import time
@@ -26,7 +27,13 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from edgar_rag import __version__
 from edgar_rag.answer import AbstentionReason, Answer, Answerer
 from edgar_rag.config import ServiceSettings
-from edgar_rag.embeddings import Generator, ModelError, OllamaEmbedder, OllamaGenerator
+from edgar_rag.embeddings import (
+    Generator,
+    ModelError,
+    OllamaEmbedder,
+    OllamaGenerator,
+    OllamaProbe,
+)
 from edgar_rag.gate import BrierGate, CosineGate, GateError, RelevanceGate
 from edgar_rag.index import FilingIndex
 from edgar_rag.telemetry import StageTimer, log_request, write_to_stderr
@@ -159,6 +166,22 @@ def build_answerer(settings: ServiceSettings, client: httpx.Client) -> Answerer 
     )
 
 
+def index_fingerprint(index: FilingIndex, embedding_model: str) -> dict[str, object]:
+    """What an operator needs to tell which index is being served.
+
+    The digest covers the vectors and the chunk ids, so a re-ingest that
+    changed either shows up as a different value.
+    """
+    digest = hashlib.sha256(index.vectors.tobytes())
+    for chunk in index.chunks:
+        digest.update(chunk.chunk_id.encode("utf-8"))
+    return {
+        "embedding_model": embedding_model,
+        "dimensions": int(index.vectors.shape[1]),
+        "digest": digest.hexdigest()[:16],
+    }
+
+
 def create_app(
     settings: ServiceSettings | None = None,
     answerer: Answerer | None = None,
@@ -185,6 +208,10 @@ def create_app(
                 if built is None
                 else with_generation_limit(built, config.max_concurrent_generations)
             )
+            app.state.fingerprint = (
+                None if built is None else index_fingerprint(built.index, config.embedding_model)
+            )
+            app.state.ollama = OllamaProbe(str(config.ollama_base_url), client)
             yield
 
     app = FastAPI(title="edgar-rag", version=__version__, lifespan=lifespan)
@@ -296,13 +323,16 @@ router = APIRouter()
 
 @router.get("/health")
 def health(request: Request) -> dict[str, object]:
-    answerer: Answerer | None = request.app.state.answerer
-    if answerer is None:
-        return {"status": "no index", "indexed_filing": None, "chunks": 0}
+    """The index loaded at startup, its fingerprint, and whether Ollama answers."""
+    state = request.app.state
+    answerer: Answerer | None = state.answerer
+    ollama: OllamaProbe = state.ollama
     return {
-        "status": "ready",
-        "indexed_filing": answerer.source,
-        "chunks": len(answerer.index.chunks),
+        "status": "ready" if answerer is not None else "no index",
+        "indexed_filing": answerer.source if answerer is not None else None,
+        "chunks": len(answerer.index.chunks) if answerer is not None else 0,
+        "fingerprint": state.fingerprint,
+        "ollama_reachable": ollama.reachable(),
     }
 
 

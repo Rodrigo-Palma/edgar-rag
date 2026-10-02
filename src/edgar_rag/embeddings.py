@@ -1,6 +1,7 @@
 """Embedding and generation, served by a local Ollama."""
 
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from typing import Any, Protocol, cast
 
 import httpx
@@ -8,6 +9,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 REQUEST_TIMEOUT_SECONDS = 120.0
+# A health check has to answer fast whatever Ollama is doing.
+PROBE_TIMEOUT_SECONDS = 2.0
+PROBE_TTL_SECONDS = 10.0
 
 
 class ModelError(RuntimeError):
@@ -112,3 +116,40 @@ class OllamaGenerator:
         if not answer:
             raise ModelError(f"{self._model} returned an empty answer")
         return answer
+
+
+class OllamaProbe:
+    """Whether Ollama answers, asked at most once per ``ttl`` seconds.
+
+    ``/health`` is polled, and a check that called Ollama on every poll would
+    put load on the machine it is meant to observe.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        client: httpx.Client,
+        *,
+        ttl: float = PROBE_TTL_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._url = f"{base_url.rstrip('/')}/api/version"
+        self._client = client
+        self._ttl = ttl
+        self._clock = clock
+        self._last: tuple[float, bool] | None = None
+
+    def reachable(self) -> bool:
+        now = self._clock()
+        if self._last is not None and now - self._last[0] < self._ttl:
+            return self._last[1]
+        answered = self._ask()
+        self._last = (now, answered)
+        return answered
+
+    def _ask(self) -> bool:
+        try:
+            response = self._client.get(self._url, timeout=PROBE_TIMEOUT_SECONDS)
+        except httpx.HTTPError:
+            return False
+        return response.is_success
