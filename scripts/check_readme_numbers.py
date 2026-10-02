@@ -1,7 +1,7 @@
 """Every number the README states is one the evaluation printed.
 
-    uv run python scripts/check_readme_numbers.py            # README.md
-    uv run python scripts/check_readme_numbers.py OTHER.md   # any other file
+    uv run python scripts/check_readme_numbers.py                # README.md
+    uv run python scripts/check_readme_numbers.py A.md B.md ...  # each file given
 
 The sources are the files a number may be copied from:
 
@@ -14,9 +14,10 @@ A number is any numeric token of the prose and the tables. A percentage has to
 appear in a source as a percentage, a fraction such as ``13/300`` as that
 fraction, and anything else as a numeric token; thousands separators and a
 leading plus are ignored, so ``6,192`` matches ``6192`` and ``+0.6`` matches
-``0.6``. Skipped, because they are not results: fenced code blocks (commands,
-and the JSON responses ``tests/test_readme_contract.py`` holds against the
-service), inline code (settings, model names, paths), link targets, issue and
+``0.6``. A ``mermaid`` block is a diagram the page renders, so it is checked
+like prose. Skipped, because they are not results: every other fenced code
+block (commands, and the JSON responses ``tests/test_readme_contract.py``
+holds against the service), inline code (settings, model names, paths), link targets, issue and
 pull request references (``#4``), ADR numbers (``ADR-0014``) and the form name
 ``10-K``.
 
@@ -36,7 +37,8 @@ SOURCES = (
     ROOT / "docs" / "eval" / "protocol.md",
 )
 
-FENCE = re.compile(r"^\s*(```|~~~)")
+FENCE = re.compile(r"^\s*(```|~~~)\s*(\w*)")
+CHECKED_FENCES = frozenset({"mermaid"})
 NOT_RESULTS = (
     re.compile(r"`[^`]*`"),  # inline code
     re.compile(r"\]\([^)]*\)"),  # link targets; the link text stays
@@ -66,13 +68,20 @@ def numbers(text: str) -> Iterator[str]:
 
 
 def prose_lines(text: str) -> Iterator[tuple[int, str]]:
-    """The lines outside fenced code, with code spans, links and references removed."""
+    """The lines a reader sees as text: prose, tables and ``mermaid`` diagrams.
+
+    Code spans, links and references are removed; fenced code other than a
+    diagram is skipped whole.
+    """
     fenced = False
+    skipped = False
     for number, line in enumerate(text.splitlines(), start=1):
-        if FENCE.match(line):
+        fence = FENCE.match(line)
+        if fence:
             fenced = not fenced
+            skipped = fenced and fence.group(2).lower() not in CHECKED_FENCES
             continue
-        if fenced:
+        if skipped:
             continue
         for pattern in NOT_RESULTS:
             line = pattern.sub(" ", line)
@@ -91,15 +100,21 @@ def missing(readme: str, sources: Iterable[str]) -> list[tuple[int, str]]:
 
 
 def main(argv: list[str]) -> int:
-    path = Path(argv[1]) if len(argv) > 1 else README
-    absent = missing(path.read_text("utf-8"), (source.read_text("utf-8") for source in SOURCES))
-    for line, token in absent:
-        print(f"{path.name}:{line}: {token} appears in none of the evaluation reports")
-    if absent:
+    paths = [Path(arg) for arg in argv[1:]] or [README]
+    sources = [source.read_text("utf-8") for source in SOURCES]
+    failed = False
+    for path in paths:
+        absent = missing(path.read_text("utf-8"), sources)
+        for line, token in absent:
+            print(f"{path}:{line}: {token} appears in none of the evaluation reports")
+        if absent:
+            failed = True
+        else:
+            print(f"{path}: every number appears in the evaluation reports")
+    if failed:
         names = ", ".join(str(source.relative_to(ROOT)) for source in SOURCES)
-        print(f"a number in the README is copied from one of: {names}", file=sys.stderr)
+        print(f"a number in these pages is copied from one of: {names}", file=sys.stderr)
         return 1
-    print(f"{path.name}: every number appears in the evaluation reports")
     return 0
 
 

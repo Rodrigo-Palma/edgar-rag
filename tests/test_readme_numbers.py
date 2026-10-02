@@ -66,3 +66,47 @@ def test_code_links_and_references_are_not_results():
     )
 
     assert check.missing(readme, [REPORT]) == []
+
+
+def test_a_number_inside_a_mermaid_block_is_checked():
+    readme = "\n".join(
+        [
+            "```mermaid",
+            "flowchart LR",
+            '  L1["13/300 answered"] --> L2["arm A, 13.21 s; arm F, 6.95 s"]',
+            "```",
+        ]
+    )
+
+    assert check.missing(readme, [REPORT]) == [(3, "6.95")]
+
+
+def test_other_fenced_blocks_are_still_skipped():
+    readme = "\n".join(
+        [
+            "```json",
+            '{"score": 0.7566}',
+            "```",
+            "```",
+            "port 8077",
+            "```",
+            "```mermaid",
+            "  bar [13.21]",
+            "```",
+            "4.4% after the diagram",
+        ]
+    )
+
+    assert check.missing(readme, [REPORT]) == [(10, "4.4%")]
+
+
+def test_every_file_given_is_checked(tmp_path, capsys):
+    clean = tmp_path / "clean.md"
+    clean.write_text("13/300 = 4.3%", "utf-8")
+    invented = tmp_path / "invented.md"
+    invented.write_text('```mermaid\nflowchart LR\n  A["99.9% recall"]\n```\n', "utf-8")
+
+    status = check.main(["check_readme_numbers.py", str(clean), str(invented)])
+
+    assert status == 1
+    assert f"{invented}:3: 99.9%" in capsys.readouterr().out
