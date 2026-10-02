@@ -8,6 +8,7 @@ the ports, and only the entry points choose which adapter is wired in.
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Protocol
@@ -25,6 +26,79 @@ class Chunk:
     item: str
     title: str
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class Scope:
+    """Which filing a question is about: a company and, optionally, a fiscal year.
+
+    Every question is answered from one filing. Without a ``fiscal_year`` it
+    is the latest year indexed for ``cik``. Working out the company or the year
+    from the question itself would be entity linking, a different problem with
+    its own failures, so the caller states them.
+
+    Raises:
+        ValueError: for a CIK or a fiscal year that is not a positive integer.
+    """
+
+    cik: int
+    fiscal_year: int | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.cik, bool) or not isinstance(self.cik, int) or self.cik < 1:
+            raise ValueError(f"{self.cik!r} is not a CIK")
+        year = self.fiscal_year
+        if year is not None and (isinstance(year, bool) or not isinstance(year, int) or year < 1):
+            raise ValueError(f"{year!r} is not a fiscal year")
+
+    def __str__(self) -> str:
+        if self.fiscal_year is None:
+            return f"CIK {self.cik}, the latest fiscal year"
+        return f"CIK {self.cik}, fiscal {self.fiscal_year}"
+
+
+@dataclass(frozen=True, slots=True)
+class IndexedFiling:
+    """A filing in the index: what an answer names as its source.
+
+    ``fiscal_year`` is the calendar year the reporting period ends in, the
+    convention the golden set's filings are pinned by.
+    """
+
+    accession: str
+    cik: int
+    fiscal_year: int
+    form: str
+    company: str
+    filing_date: date
+    url: str
+
+
+@dataclass(frozen=True, slots=True)
+class EmbedderSpec:
+    """How passages and questions are turned into vectors.
+
+    Both sides of a cosine have to come from the same model with the same
+    preprocessing: vectors from another model, or from text that was not
+    lower-cased the same way, still load and search, and return passages that
+    look plausible and are not the closest.
+    """
+
+    model: str
+    lowercase: bool
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingFingerprint:
+    """The ``EmbedderSpec`` an index was built with, and the size of its vectors."""
+
+    model: str
+    lowercase: bool
+    dimensions: int
+
+    @property
+    def spec(self) -> EmbedderSpec:
+        return EmbedderSpec(model=self.model, lowercase=self.lowercase)
 
 
 @dataclass(frozen=True, slots=True)
