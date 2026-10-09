@@ -323,3 +323,23 @@ def test_an_unreadable_figure_in_words_is_backed_by_nothing_not_even_zero():
     answer = _ask("The fee was three quarters percent [1].", _index(first=passage))
 
     assert answer.reason is AbstentionReason.UNSUPPORTED_CLAIM
+
+
+@pytest.mark.parametrize(
+    ("reply", "passage"),
+    [
+        ("Revenue was $100 million [1].", "The company has 100 employees."),
+        ("Revenue was $1.0 billion [1].", "Revenue (in millions) 1,000"),
+    ],
+    ids=["round-count-rescaled", "round-table-value-rescaled"],
+)
+def test_a_round_number_of_three_digits_is_rescaled_whatever_it_counts(reply, passage):
+    """Known limitation: the rule counts digits, zeros included, not what a number counts."""
+    assert _ask(reply, _index(first=passage)).abstained is False
+
+
+def test_a_percentage_under_an_in_percent_header_does_not_back_a_percentage():
+    """Known limitation, failing closed: the header's unit is not carried to the number."""
+    answer = _ask("Gross margin was 42.5% [1].", _index(first="Gross margin (in percent) 42.5"))
+
+    assert answer.reason is AbstentionReason.UNSUPPORTED_CLAIM

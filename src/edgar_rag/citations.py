@@ -212,7 +212,7 @@ def check_claims(
     label, with references to its own parts (``Note 3``, ``page 21``,
     ``Exhibit 10.1``) removed; a percentage backs only a percentage; a number
     printed with no scale word is read at another scale only when it has at
-    least ``MIN_DIGITS_TO_RESCALE`` significant digits, because a table states
+    least ``MIN_DIGITS_TO_RESCALE`` digits, because a table states
     its unit once in a header but ``12 members`` is not twelve billion.
 
     The finding names the sentence and its markers, never the figure: the
@@ -329,7 +329,13 @@ def _scales(amount: Amount, rules: SupportRules) -> tuple[Decimal, ...]:
     return _SCALES
 
 
-def _significant_digits(amount: Amount) -> int:
+def _digit_count(amount: Amount) -> int:
+    """Digits printed, leading zeros dropped and trailing zeros kept: ``100`` has 3.
+
+    Not significant digits: a table "(in millions)" prints round values as
+    ``1,000``, and dropping the zeros would withhold them. The cost is that a
+    round count (``100 employees``) can still back ``$100 million``.
+    """
     return len(re.sub(r"\D", "", amount.text).lstrip("0"))
 
 
@@ -345,7 +351,7 @@ def _supports(claimed: Amount, found: Amount, rules: SupportRules = CURRENT) -> 
         return False
     if rules.percent_backs_only_percent and claimed.is_percent != found.is_percent:
         return False
-    rescalable = _significant_digits(found) >= rules.min_digits_to_rescale
+    rescalable = _digit_count(found) >= rules.min_digits_to_rescale
     return any(
         amount_matches(
             Amount(value=abs(claimed.value) * mine, unit=claimed.unit * mine, text=claimed.text),
