@@ -4,7 +4,7 @@ Question answering over SEC 10-K filings that cites the passage it used and
 declines when the filing does not support an answer.
 
 [![CI](https://github.com/Rodrigo-Palma/edgar-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/Rodrigo-Palma/edgar-rag/actions/workflows/ci.yml)
-![release](https://img.shields.io/badge/release-v1.0.0-blue)
+[![release](https://img.shields.io/github/v/release/Rodrigo-Palma/edgar-rag)](https://github.com/Rodrigo-Palma/edgar-rag/releases)
 ![python](https://img.shields.io/badge/python-3.13-blue)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 

@@ -1,6 +1,6 @@
 [project]
 name = "edgar-rag"
-version = "1.0.0"
+version = "1.1.0"
 description = "Question answering over SEC filings that cites its sources and abstains when the evidence is thin"
 requires-python = ">=3.13"
 dependencies = [

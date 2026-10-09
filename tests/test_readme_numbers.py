@@ -38,14 +38,19 @@ def test_the_docs_pages_state_no_number_the_reports_do_not_print():
     assert check.main(["check_readme_numbers.py", *map(str, pages)]) == 0
 
 
-def test_the_release_badge_is_the_package_version():
-    """The badges are static, because the repository is private; this keeps that one true."""
+def test_the_release_badge_reads_the_release_and_the_changelog_leads_with_the_version():
+    """The badge asks GitHub for the latest release, so no version is typed into the README.
+
+    What stays typed by hand is the changelog, so its newest entry has to be
+    the version the package declares.
+    """
     readme = (ROOT / "README.md").read_text("utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text("utf-8")
     version = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))["project"]["version"]
 
-    badges = re.findall(r"img\.shields\.io/badge/release-v([\w.]+)-", readme)
-
-    assert badges == [version]
+    assert re.findall(r"img\.shields\.io/badge/release-", readme) == []
+    assert "img.shields.io/github/v/release/Rodrigo-Palma/edgar-rag" in readme
+    assert re.findall(r"^## \[([\w.]+)\]", changelog, re.MULTILINE)[0] == version
 
 
 def test_numbers_copied_from_the_report_pass():
