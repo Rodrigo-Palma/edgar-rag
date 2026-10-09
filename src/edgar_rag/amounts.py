@@ -18,8 +18,9 @@ decimals is read as a year and ignored. An amount followed by ``%`` or
 what it counts: number words with a scale word, ``percent`` or ``dollars``
 (``ninety billion dollars``, ``twelve percent``). Number words alone (``two
 segments``) are wording, not a figure. The words compose as English writes
-them: ``hundred`` multiplies, scale words step down (``one billion two hundred
-million``), ``point`` takes digit words (``one point five billion``), and ``a
+them: ``hundred`` multiplies, a scale word steps down (``one billion two
+hundred million``) or multiplies what is all below it (``one thousand two
+hundred million``), ``point`` takes digit words (``one point five billion``), and ``a
 half`` adds one half (``two and a half billion``). Words that do not compose
 under those rules (``three quarters percent``, ``two and three percent``) are
 kept as a figure marked unreadable, so a check holding it to a passage fails
@@ -213,7 +214,7 @@ def _decimal_value(words: list[str]) -> tuple[Decimal, Decimal] | None:
 
 
 def _integer_value(words: list[str]) -> tuple[Decimal, Decimal] | None:
-    """Groups below a thousand, each closed by a scale word smaller than the one before."""
+    """Groups below a thousand, each closed by a scale word (see ``_close_group``)."""
     total, group, half = Decimal(0), Decimal(0), False
     last_scale: Decimal | None = None
     previous = ""
@@ -223,9 +224,10 @@ def _integer_value(words: list[str]) -> tuple[Decimal, Decimal] | None:
         if not _follows(previous, word, following):
             return None
         if scale is not None:
-            if group == 0 or (last_scale is not None and scale >= last_scale):
+            closed = _close_group(total, group, scale, last_scale)
+            if closed is None:
                 return None
-            total, group, last_scale = total + group * scale, Decimal(0), scale
+            total, group, last_scale = closed, Decimal(0), scale
         elif word == "hundred":
             group = max(group, Decimal(1)) * 100
         elif word == "half":
@@ -238,6 +240,23 @@ def _integer_value(words: list[str]) -> tuple[Decimal, Decimal] | None:
     unit = Decimal(1) if group or last_scale is None else last_scale
     step = unit / 10 if half else unit
     return total + group, step
+
+
+def _close_group(
+    total: Decimal, group: Decimal, scale: Decimal, last_scale: Decimal | None
+) -> Decimal | None:
+    """The total once ``scale`` closes ``group``, or ``None`` when the scales do not compose.
+
+    A smaller scale adds its group (``one billion two hundred million``); a
+    larger one multiplies everything before it, but only when all of that is
+    below it (``one thousand two hundred million``, not ``five million six
+    million``).
+    """
+    if last_scale is None or scale < last_scale:
+        return total + group * scale if group else None
+    if total + group < scale:
+        return (total + group) * scale
+    return None
 
 
 def _follows(previous: str, word: str, following: list[str]) -> bool:

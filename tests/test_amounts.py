@@ -27,6 +27,8 @@ from edgar_rag.amounts import amounts_in, spelled_amounts_in
         ("one hundred and five million", Decimal(105) * 10**6, Decimal(10) ** 6, False),
         ("one billion two hundred million", Decimal("1.2") * 10**9, Decimal(10) ** 6, False),
         ("a billion dollars", Decimal(10) ** 9, Decimal(10) ** 9, False),
+        ("one thousand two hundred million", Decimal(1200) * 10**6, Decimal(10) ** 6, False),
+        ("two thousand million dollars", Decimal(2) * 10**9, Decimal(10) ** 6, False),
     ],
 )
 def test_a_figure_in_words_is_read_at_the_scale_it_names(text, value, unit, is_percent):
