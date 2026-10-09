@@ -226,8 +226,9 @@ participant, including the busy response when every generation slot is taken:
 | A declined question never reaches the model | [`test_abstains_before_generating_when_retrieval_is_weak`](tests/test_answer.py), [`test_a_gate_rejection_traces_no_generation`](tests/test_answerer.py) |
 | The refusal token is drawn per request, and only that exact token is a refusal | [`test_one_answered_request_draws_exactly_one_nonce`](tests/test_injection.py), [`test_two_requests_to_one_answerer_carry_different_refusal_tokens`](tests/test_injection.py), [`test_only_the_exact_token_is_a_refusal`](tests/test_injection.py) |
 | Filing text is untrusted: it cannot close the passages block, open a turn, fake a citation or force a refusal | [`test_a_nested_closing_tag_cannot_close_the_block`](tests/test_injection.py), [`test_a_passage_cannot_open_a_new_turn`](tests/test_injection.py), [`test_no_citation_marker_survives_in_a_passage`](tests/test_injection.py), [`test_the_refusal_phrase_is_removed_in_any_spelling`](tests/test_injection.py) |
-| A sentence with a figure, or a long one, cites a retrieved passage, or the answer abstains with `no_valid_citation` | [`test_a_sentence_with_a_figure_and_no_marker_abstains`](tests/test_citation_check.py), [`test_a_long_sentence_with_no_marker_abstains`](tests/test_citation_check.py) |
-| Every amount written in digits in a cited sentence matches a number of a passage it cites, or the answer abstains with `unsupported_claim` | [`test_a_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_an_injected_figure_cited_to_a_legitimate_passage_abstains`](tests/test_citation_check.py) |
+| A sentence with a figure, in digits or in words, or a long one, cites a retrieved passage, or the answer abstains with `no_valid_citation` | [`test_a_sentence_with_a_figure_and_no_marker_abstains`](tests/test_citation_check.py), [`test_a_spelled_out_figure_needs_a_marker`](tests/test_citation_check.py), [`test_a_long_sentence_with_no_marker_abstains`](tests/test_citation_check.py) |
+| Every figure in a cited sentence, in digits or in words, matches a figure the text of a cited passage prints, or the answer abstains with `unsupported_claim`. The item label and the passage's references to notes, pages, exhibits and sections back nothing, a percentage is backed only by a percentage, and a number printed without a scale word is rescaled only with 3 or more significant digits | [`test_a_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_an_injected_figure_cited_to_a_legitimate_passage_abstains`](tests/test_citation_check.py), [`test_a_reference_number_does_not_back_a_figure`](tests/test_citation_check.py), [`test_a_spelled_out_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_a_number_of_another_kind_or_too_short_to_scale_does_not_back_a_figure`](tests/test_citation_check.py) |
+| An abstention names the sentence that failed, never the figure it withheld | [`test_the_withheld_figure_appears_nowhere_in_the_ask_response`](tests/test_api.py) |
 | A search never returns a passage of another filing | [`test_a_search_never_returns_a_passage_of_another_filing`](tests/test_corpus_index.py), [`test_a_question_is_never_answered_from_another_company_s_filing`](tests/test_answerer.py) |
 | The service refuses an index built by another embedder, or a shard changed after it was written | [`test_the_service_refuses_to_start_on_an_index_from_another_embedder`](tests/test_api.py), [`test_the_service_refuses_to_start_on_a_shard_that_changed`](tests/test_api.py) |
 | A gate that decided on part of its evidence is reported as `degraded`, up to the HTTP response | [`test_a_degraded_gate_is_reported_on_an_answer`](tests/test_answer_contract.py), [`test_a_partly_judged_refusal_reaches_the_client_as_degraded`](tests/test_api.py) |
@@ -237,8 +238,7 @@ participant, including the busy response when every generation slot is taken:
 | The report is what the frozen run produces | CI job "report reproduces": `make eval` leaves `docs/eval/` unchanged |
 | No test reaches the network or a model | [`no_network`](tests/conftest.py), an autouse fixture that fails any request through httpx's sync or async transport and any `socket.connect` to an internet address: [`test_an_async_httpx_request_to_an_external_host_fails`](tests/test_no_network.py), [`test_a_raw_socket_connect_fails`](tests/test_no_network.py) |
 
-What the citation check does not verify, the scale of a figure among them, is
-in [Limitations](#limitations).
+What the citation check does not verify is in [Limitations](#limitations).
 
 ## Evaluation
 
@@ -261,6 +261,16 @@ the full tables are in the report.
   [55.2%, 95.3%] of the answered ones whose filing passes the split rule.
 - **Determinism:** the same prompt sent twice gave identical text in 30/30 =
   100.0% [88.6%, 100.0%].
+
+**v1.1 changes the citation check, not the gate.** The numbers above were
+measured with the v1.0.0 check. Replayed over the same 139 generations with
+text, with no model ([protocol](docs/eval/protocol-v1.1.md), written first;
+[report](docs/eval/report-v1.1-citations.md), rebuilt by `make eval`), the
+v1.1 check changes no outcome: under arm A, 0/117 answers are withheld once
+reference numbers stop counting, 0/117 state their figures only in words, and
+0/22 withheld answers would be answered. Zero here means at most 3.2% of
+answers (Wilson 95%), not none. The replay can see a wrong figure: moving one
+digit in each answer is withheld in 102/105.
 
 ## What failed and why
 
@@ -397,19 +407,16 @@ on are [ADR-0001](docs/adr/0001-abstain-before-generating.md),
   `out_of_period`. The default gate, `none`, does not run the guard.
   [`test_a_year_that_names_a_plan_is_not_a_period`](tests/test_period.py)
   records it as an expected failure.
-- The citation check is weaker than "the cited passage states the figure". Any
-  number the passage shows backs a figure with the same digits, the item label
-  and references to notes or pages included: against a passage labelled
-  `Item 7` that says `See Note 3 on page 21`, the answers `$7 billion`, `7%`,
-  `$3.0 billion` and `$21 million` all pass. A figure the passage prints with
-  no scale word is accepted at any scale from ones to billions, because tables
-  state the unit once in a header. Wording without digits can still paraphrase
-  wrongly, a figure in words (`ninety billion dollars`) is not checked, and a
-  figure the model computed (a growth rate the passage does not print) is
-  withheld even when it is right. How often this happened in the v1 run was
-  not measured; the fix and the measurement are planned for v1.1
-  ([issue #10](https://github.com/Rodrigo-Palma/edgar-rag/issues/10),
-  [issue #13](https://github.com/Rodrigo-Palma/edgar-rag/issues/13)).
+- The citation check is lexical. It holds every figure of a cited sentence
+  to the text of the passage it cites, and nothing more: wording without
+  figures can still paraphrase wrongly, and a figure the model computed (a
+  growth rate the passage does not print) is withheld even when it is right.
+  It reads a figure in words only when it names a scale, `percent` or
+  `dollars` (`ninety billion dollars`, not `two segments`). In the v1 run the
+  weaker v1.0.0 check, which also counted the item label and note and page
+  numbers as support, decided no outcome differently: 0/117 under arm A, at
+  most 3.2% (Wilson 95%)
+  ([report](docs/eval/report-v1.1-citations.md)).
 
 ## License
 
