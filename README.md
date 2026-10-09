@@ -235,7 +235,7 @@ participant, including the busy response when every generation slot is taken:
 | The JSON above is the shape the service returns | [`tests/test_readme_contract.py`](tests/test_readme_contract.py) |
 | Every number in this README, its diagrams included, is copied from the evaluation reports | [`scripts/check_readme_numbers.py`](scripts/check_readme_numbers.py), run by `make check` and [`tests/test_readme_numbers.py`](tests/test_readme_numbers.py) |
 | The report is what the frozen run produces | CI job "report reproduces": `make eval` leaves `docs/eval/` unchanged |
-| No test reaches the network or a model | [`no_network`](tests/conftest.py), an autouse fixture that fails any real socket through httpx's synchronous transport (the async path is not covered) |
+| No test reaches the network or a model | [`no_network`](tests/conftest.py), an autouse fixture that fails any request through httpx's sync or async transport and any `socket.connect` to an internet address: [`test_an_async_httpx_request_to_an_external_host_fails`](tests/test_no_network.py), [`test_a_raw_socket_connect_fails`](tests/test_no_network.py) |
 
 What the citation check does not verify, the scale of a figure among them, is
 in [Limitations](#limitations).

@@ -1,3 +1,5 @@
+import socket
+
 import httpx
 import pytest
 
@@ -25,14 +27,29 @@ def index() -> CorpusIndex:
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    """Fail any test that reaches for a real socket through httpx.
+    """Fail any test that reaches for a real host, through httpx or a raw socket.
 
     Every outbound call goes through an injected client, so a test that forgot
     to give one a ``MockTransport`` would otherwise quietly call a local
-    Ollama when one happens to be running.
+    Ollama when one happens to be running. Both httpx transports are refused,
+    sync and async, and ``socket.connect`` on an internet address is refused
+    underneath them for any client that does not go through httpx. Unix
+    sockets stay open: the event loop and subprocesses use them locally.
     """
 
     def refuse(self, request: httpx.Request) -> httpx.Response:
         raise AssertionError(f"a test tried to reach {request.url}")
 
+    async def refuse_async(self, request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"a test tried to reach {request.url}")
+
+    real_connect = socket.socket.connect
+
+    def refuse_socket(self: socket.socket, address: object) -> None:
+        if self.family in (socket.AF_INET, socket.AF_INET6):
+            raise AssertionError(f"a test tried to open a socket to {address}")
+        real_connect(self, address)
+
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse_async)
+    monkeypatch.setattr(socket.socket, "connect", refuse_socket)
