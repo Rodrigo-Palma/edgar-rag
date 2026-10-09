@@ -62,7 +62,7 @@ HEADLINE_MODEL := qwen3:32b
 ingest: ## Index the golden set's 48 pinned filings from their snapshots (needs Ollama)
 	$(UV_RUN) edgar-rag ingest --lock $(LOCK)
 
-eval: ## Rebuild docs/eval/ from the frozen runs in eval/runs/ (no model, no network)
+eval: ## Rebuild docs/eval/ from the frozen runs, v1.1 citation report included (no model, no network)
 	@runs=$$(find $(RUNS) -mindepth 2 -maxdepth 2 -name manifest.json -exec dirname {} \; 2>/dev/null | sort); \
 	if [ -z "$$runs" ]; then \
 		echo "no frozen run in $(RUNS)/ yet: make eval-full writes $(HEADLINE_RUN)"; exit 0; \
@@ -72,7 +72,8 @@ eval: ## Rebuild docs/eval/ from the frozen runs in eval/runs/ (no model, no net
 		out=$(REPORTS)/report-$$(basename $$run).md; \
 		$(UV_RUN) edgar-rag eval report --run $$run --out $$out || exit 1; \
 		echo "$$out"; \
-	done
+	done; \
+	$(UV_RUN) python scripts/measure_citation_support.py
 
 result: ## Print the six arms and the H1/H2 reading from docs/eval/report-v1.md (no model)
 	@$(UV_RUN) python scripts/print_result.py

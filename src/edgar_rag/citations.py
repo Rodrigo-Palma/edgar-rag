@@ -243,6 +243,15 @@ def check_claims(
     return None
 
 
+def stated_figures(text: str, rules: SupportRules = CURRENT) -> tuple[Amount, ...]:
+    """Every figure an answer states, read the way ``check_claims`` reads its sentences."""
+    return tuple(
+        amount
+        for sentence in _answer_sentences(text)
+        for amount in _amounts(_claim_text(sentence, rules), rules)
+    )
+
+
 def _answer_sentences(text: str) -> list[str]:
     """Sentences of an answer, with list numbering removed and stray markers reattached.
 
