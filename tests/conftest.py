@@ -32,9 +32,11 @@ def no_network(monkeypatch):
     Every outbound call goes through an injected client, so a test that forgot
     to give one a ``MockTransport`` would otherwise quietly call a local
     Ollama when one happens to be running. Both httpx transports are refused,
-    sync and async, and ``socket.connect`` on an internet address is refused
-    underneath them for any client that does not go through httpx. Unix
-    sockets stay open: the event loop and subprocesses use them locally.
+    sync and async, and ``socket.connect`` and ``socket.connect_ex`` on an
+    internet address are refused underneath them, for a client in this process
+    that does not go through httpx. Unix sockets stay open: the event loop and
+    subprocesses use them locally. A subprocess (``curl``) is not covered: it
+    has its own sockets, and no test starts one that reaches a host.
     """
 
     def refuse(self, request: httpx.Request) -> httpx.Response:
@@ -44,12 +46,21 @@ def no_network(monkeypatch):
         raise AssertionError(f"a test tried to reach {request.url}")
 
     real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
 
-    def refuse_socket(self: socket.socket, address: object) -> None:
+    def refuse_internet(self: socket.socket, address: object) -> None:
         if self.family in (socket.AF_INET, socket.AF_INET6):
             raise AssertionError(f"a test tried to open a socket to {address}")
+
+    def refuse_socket(self: socket.socket, address: object) -> None:
+        refuse_internet(self, address)
         real_connect(self, address)
+
+    def refuse_socket_ex(self: socket.socket, address: object) -> int:
+        refuse_internet(self, address)
+        return real_connect_ex(self, address)
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse_async)
     monkeypatch.setattr(socket.socket, "connect", refuse_socket)
+    monkeypatch.setattr(socket.socket, "connect_ex", refuse_socket_ex)

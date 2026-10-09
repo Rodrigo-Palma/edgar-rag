@@ -29,3 +29,11 @@ def test_a_raw_socket_connect_fails():
         socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw,
     ):
         raw.connect(("192.0.2.1", 80))  # TEST-NET-1, RFC 5737
+
+
+def test_a_raw_socket_connect_ex_fails():
+    with (
+        pytest.raises(AssertionError, match="tried to open a socket"),
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw,
+    ):
+        raw.connect_ex(("192.0.2.1", 80))  # TEST-NET-1, RFC 5737
