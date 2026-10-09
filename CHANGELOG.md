@@ -1,0 +1,61 @@
+# Changelog
+
+All notable changes to this project are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.1.0] - 2026-10-09
+
+v1.1 changes the citation check, not the gate. The headline numbers of
+[report-v1.md](docs/eval/report-v1.md) were measured with v1.0.0 and stand.
+
+### Fixed
+
+- The citation check no longer counts the item label, or the passage's
+  references to its own notes, pages, items, exhibits and sections, as support
+  for a figure. A percentage is backed only by a percentage, and a number the
+  passage prints without a scale word is rescaled only when it has at least 3
+  significant digits ([#10](https://github.com/Rodrigo-Palma/edgar-rag/issues/10)).
+- A figure in words that names a scale, `percent` or `dollars` now needs a
+  marker and is held to the cited passage like one in digits
+  ([#10](https://github.com/Rodrigo-Palma/edgar-rag/issues/10)).
+- An `unsupported_claim` abstention names the sentence and its markers, never
+  the figure it withheld ([#11](https://github.com/Rodrigo-Palma/edgar-rag/issues/11)).
+
+### Added
+
+- `docs/eval/protocol-v1.1.md`, committed before the measurement, and
+  `docs/eval/report-v1.1-citations.md`, rebuilt by `make eval`: the v1.0.0 and
+  v1.1 checks replayed over the 139 v1 generations with text, offline. No
+  outcome changes in any arm (0/117 answered cases under arm A, exploratory,
+  Wilson 95% upper bound 3.2%); a positive control that changes one digit per
+  answer is withheld in 102/105
+  ([#13](https://github.com/Rodrigo-Palma/edgar-rag/issues/13)).
+
+### Changed
+
+- The `no_network` test fixture also refuses httpx's async transport and
+  `socket.connect` to an internet address.
+- `astral-sh/uv` image 0.12.23, `hypothesis` 6.168.4.
+
+## [1.0.0] - 2026-10-02
+
+First public release.
+
+### Added
+
+- A FastAPI service that answers questions about one SEC 10-K at a time,
+  cites the passages it used, and abstains with a closed set of reasons when
+  the filing does not support an answer.
+- Exact NumPy search over a sharded on-disk index, Ollama for embeddings and
+  generation, a nonce-delimited prompt that treats filing text as untrusted,
+  and a citation check on every answer.
+- An evaluation harness that runs the production pipeline: a golden set built
+  from XBRL, a pre-registered protocol, six gate arms as masks over one
+  generation, and a CI gate that replays the dev split from a recorded tape.
+- The pre-registered headline round (`qwen3:32b`, 20 companies): H1 not
+  attainable, H2 not met; the brier relevance model was removed and the
+  default gate is `none` ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
+
+[1.1.0]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/Rodrigo-Palma/edgar-rag/releases/tag/v1.0.0
