@@ -227,7 +227,7 @@ participant, including the busy response when every generation slot is taken:
 | The refusal token is drawn per request, and only that exact token is a refusal | [`test_one_answered_request_draws_exactly_one_nonce`](tests/test_injection.py), [`test_two_requests_to_one_answerer_carry_different_refusal_tokens`](tests/test_injection.py), [`test_only_the_exact_token_is_a_refusal`](tests/test_injection.py) |
 | Filing text is untrusted: it cannot close the passages block, open a turn, fake a citation or force a refusal | [`test_a_nested_closing_tag_cannot_close_the_block`](tests/test_injection.py), [`test_a_passage_cannot_open_a_new_turn`](tests/test_injection.py), [`test_no_citation_marker_survives_in_a_passage`](tests/test_injection.py), [`test_the_refusal_phrase_is_removed_in_any_spelling`](tests/test_injection.py) |
 | A sentence with a figure, in digits or in words, or a long one, cites a retrieved passage, or the answer abstains with `no_valid_citation` | [`test_a_sentence_with_a_figure_and_no_marker_abstains`](tests/test_citation_check.py), [`test_a_spelled_out_figure_needs_a_marker`](tests/test_citation_check.py), [`test_a_long_sentence_with_no_marker_abstains`](tests/test_citation_check.py) |
-| Every figure in a cited sentence, in digits or in words, matches a figure the text of a cited passage prints, or the answer abstains with `unsupported_claim`. The item label and the passage's references to notes, pages, exhibits and sections back nothing, a percentage is backed only by a percentage, and a number printed without a scale word is rescaled only with 3 or more significant digits | [`test_a_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_an_injected_figure_cited_to_a_legitimate_passage_abstains`](tests/test_citation_check.py), [`test_a_reference_number_does_not_back_a_figure`](tests/test_citation_check.py), [`test_a_spelled_out_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_a_number_of_another_kind_or_too_short_to_scale_does_not_back_a_figure`](tests/test_citation_check.py) |
+| Every figure in a cited sentence, in digits or in words, matches a figure the text of a cited passage prints, or the answer abstains with `unsupported_claim`. Words are read whole (`one point five billion`, `two and a half billion`, `two thousand five hundred dollars`); words that do not compose back nothing. The item label and the passage's references to notes, pages, exhibits and sections back nothing, a percentage is backed only by a percentage, and a number printed without a scale word is rescaled only with 3 or more digits | [`test_a_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_an_injected_figure_cited_to_a_legitimate_passage_abstains`](tests/test_citation_check.py), [`test_a_reference_number_does_not_back_a_figure`](tests/test_citation_check.py), [`test_a_spelled_out_figure_the_cited_passage_does_not_contain_abstains`](tests/test_citation_check.py), [`test_a_composed_figure_in_words_is_held_to_its_whole_value`](tests/test_citation_check.py), [`test_every_whole_number_in_words_reads_back_to_itself`](tests/test_amounts.py) (property test), [`test_a_number_of_another_kind_or_too_short_to_scale_does_not_back_a_figure`](tests/test_citation_check.py) |
 | An abstention names the sentence that failed, never the figure it withheld | [`test_the_withheld_figure_appears_nowhere_in_the_ask_response`](tests/test_api.py) |
 | A search never returns a passage of another filing | [`test_a_search_never_returns_a_passage_of_another_filing`](tests/test_corpus_index.py), [`test_a_question_is_never_answered_from_another_company_s_filing`](tests/test_answerer.py) |
 | The service refuses an index built by another embedder, or a shard changed after it was written | [`test_the_service_refuses_to_start_on_an_index_from_another_embedder`](tests/test_api.py), [`test_the_service_refuses_to_start_on_a_shard_that_changed`](tests/test_api.py) |
@@ -236,7 +236,7 @@ participant, including the busy response when every generation slot is taken:
 | The JSON above is the shape the service returns | [`tests/test_readme_contract.py`](tests/test_readme_contract.py) |
 | Every number in this README, its diagrams included, is copied from the evaluation reports | [`scripts/check_readme_numbers.py`](scripts/check_readme_numbers.py), run by `make check` and [`tests/test_readme_numbers.py`](tests/test_readme_numbers.py) |
 | The report is what the frozen run produces | CI job "report reproduces": `make eval` leaves `docs/eval/` unchanged |
-| No test reaches the network or a model | [`no_network`](tests/conftest.py), an autouse fixture that fails any request through httpx's sync or async transport and any `socket.connect` to an internet address: [`test_an_async_httpx_request_to_an_external_host_fails`](tests/test_no_network.py), [`test_a_raw_socket_connect_fails`](tests/test_no_network.py) |
+| No test reaches the network or a model | [`no_network`](tests/conftest.py), an autouse fixture that fails any request through httpx's sync or async transport and any `socket.connect` or `connect_ex` to an internet address in the test process: [`test_an_async_httpx_request_to_an_external_host_fails`](tests/test_no_network.py), [`test_a_raw_socket_connect_fails`](tests/test_no_network.py), [`test_a_raw_socket_connect_ex_fails`](tests/test_no_network.py) |
 
 What the citation check does not verify is in [Limitations](#limitations).
 
@@ -270,7 +270,10 @@ v1.1 check changes no outcome: under arm A, 0/117 answers are withheld once
 reference numbers stop counting, 0/117 state their figures only in words, and
 0/22 withheld answers would be answered. Zero here means at most 3.2% of
 answers (Wilson 95%), not none. The replay can see a wrong figure: moving one
-digit in each answer is withheld in 102/105.
+digit in each answer is withheld in 102/105. Its power on the defect itself
+is lower: a reference number planted in place of a cited figure is withheld
+by the M1 rules in 55/88, because the rest round to a figure the passage text
+prints, so the zero bounds support that comes only from a reference number.
 
 ## What failed and why
 
@@ -412,7 +415,13 @@ on are [ADR-0001](docs/adr/0001-abstain-before-generating.md),
   figures can still paraphrase wrongly, and a figure the model computed (a
   growth rate the passage does not print) is withheld even when it is right.
   It reads a figure in words only when it names a scale, `percent` or
-  `dollars` (`ninety billion dollars`, not `two segments`). In the v1 run the
+  `dollars` (`ninety billion dollars`, not `two segments`), and holds words
+  after `half`, `quarters` or `thirds` as a fraction it does not compute,
+  which withholds `the first three quarters of one point seven seven
+  dollars`. A number printed without a scale word is rescaled when it has 3
+  digits, zeros included, so `100 employees` still backs `$100 million`; a
+  percentage under an `(in percent)` header is not read as a percentage, so
+  `42.5%` is withheld against it. In the v1 run the
   weaker v1.0.0 check, which also counted the item label and note and page
   numbers as support, decided no outcome differently: 0/117 under arm A, at
   most 3.2% (Wilson 95%)
