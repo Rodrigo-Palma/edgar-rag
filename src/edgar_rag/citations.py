@@ -337,8 +337,12 @@ def _supports(claimed: Amount, found: Amount, rules: SupportRules = CURRENT) -> 
     """Whether ``found`` rounds to ``claimed`` at the precision ``claimed`` shows.
 
     Signs are compared as magnitudes, because "a loss of $1,234 million" and
-    "(1,234)" are the same figure in words and in accounting notation.
+    "(1,234)" are the same figure in words and in accounting notation. A
+    figure in words that does not compose has no value: it backs nothing and
+    nothing backs it.
     """
+    if not (claimed.is_readable and found.is_readable):
+        return False
     if rules.percent_backs_only_percent and claimed.is_percent != found.is_percent:
         return False
     rescalable = _significant_digits(found) >= rules.min_digits_to_rescale

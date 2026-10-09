@@ -234,6 +234,10 @@ def test_a_spelled_out_figure_needs_a_marker():
         ("The company has two segments [1].", "The company reports 2 segments."),
         ("Services revenue was $96.2 billion [1].", "Services (in millions) 96,169"),
         ("The company employed 164,000 people [1].", "The company had 164,000 employees."),
+        ("Revenue was one point five billion dollars [1].", "Revenue was $1.5 billion."),
+        ("Revenue was two and a half billion dollars [1].", "Revenue was $2.5 billion."),
+        ("It paid two thousand five hundred dollars [1].", "It paid $2,500."),
+        ("Revenue was one hundred and five million dollars [1].", "Revenue was $105 million."),
     ],
     ids=[
         "words-backed-by-digits",
@@ -243,6 +247,10 @@ def test_a_spelled_out_figure_needs_a_marker():
         "count-in-words-is-not-a-figure",
         "table-figure-at-scale",
         "unscaled-count",
+        "point-in-words",
+        "half-in-words",
+        "thousand-then-hundreds-in-words",
+        "hundred-and-in-words",
     ],
 )
 def test_a_figure_the_passage_states_in_another_form_is_answered(reply, passage):
@@ -284,3 +292,34 @@ def test_the_v1_0_rules_still_accept_the_probe_answers(reply):
 
     assert check_claims(reply, (passage,), rules=V1_0) is None
     assert check_claims(reply, (passage,)) is not None
+
+
+@pytest.mark.parametrize(
+    ("reply", "passage"),
+    [
+        ("Revenue was one point five billion dollars [1].", "Revenue was $5 billion."),
+        ("Revenue was two and a half billion dollars [1].", "Revenue was $9 billion."),
+        ("Margin was twelve and a half percent [1].", "Margin was 12%."),
+        ("It paid two thousand five hundred dollars [1].", "It paid $500."),
+        ("Revenue was three quarters of a billion dollars [1].", "Revenue was $750 million."),
+    ],
+    ids=["point-is-not-dropped", "half-is-read", "half-percent", "thousand-is-kept", "unreadable"],
+)
+def test_a_composed_figure_in_words_is_held_to_its_whole_value(reply, passage):
+    """Each part of a figure in words counts: no part read alone backs the sentence."""
+    answer = _ask(reply, _index(first=passage))
+
+    assert answer.reason is AbstentionReason.UNSUPPORTED_CLAIM
+
+
+def test_a_figure_in_words_with_a_half_needs_a_marker():
+    answer = _ask("The company designs phones [1]. Revenue was two and a half billion dollars.")
+
+    assert answer.reason is AbstentionReason.NO_VALID_CITATION
+
+
+def test_an_unreadable_figure_in_words_is_backed_by_nothing_not_even_zero():
+    passage = "The fee was 0% in 2024."
+    answer = _ask("The fee was three quarters percent [1].", _index(first=passage))
+
+    assert answer.reason is AbstentionReason.UNSUPPORTED_CLAIM
