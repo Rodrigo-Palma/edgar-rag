@@ -222,7 +222,7 @@ def check_claims(
     still paraphrase wrongly), and figures the model computed (a growth rate
     the passage does not print is withheld, correct or not).
     """
-    support = tuple(_amounts_supporting(scored, rules) for scored in passages)
+    support = tuple(passage_figures(scored, rules) for scored in passages)
     for position, sentence in enumerate(_answer_sentences(text), start=1):
         claim = _claim_text(sentence, rules)
         cited = markers_in(sentence, len(passages))
@@ -247,6 +247,17 @@ def stated_figures(text: str, rules: SupportRules = CURRENT) -> tuple[Amount, ..
     """Every figure an answer states, read the way ``check_claims`` reads its sentences."""
     return tuple(
         amount
+        for sentence in _answer_sentences(text)
+        for amount in _amounts(_claim_text(sentence, rules), rules)
+    )
+
+
+def cited_figures(
+    text: str, available: int, rules: SupportRules = CURRENT
+) -> tuple[tuple[Amount, frozenset[int]], ...]:
+    """Every figure an answer states, with the valid markers of the sentence that states it."""
+    return tuple(
+        (amount, markers_in(sentence, available))
         for sentence in _answer_sentences(text)
         for amount in _amounts(_claim_text(sentence, rules), rules)
     )
@@ -305,7 +316,7 @@ def _needs_marker(claim: str, rules: SupportRules = CURRENT) -> bool:
     )
 
 
-def _amounts_supporting(scored: ScoredChunk, rules: SupportRules = CURRENT) -> tuple[Amount, ...]:
+def passage_figures(scored: ScoredChunk, rules: SupportRules = CURRENT) -> tuple[Amount, ...]:
     """Every amount the passage states, under ``rules``."""
     chunk = scored.chunk
     shown = f"{chunk.item} {chunk.text}" if rules.read_item_label else chunk.text

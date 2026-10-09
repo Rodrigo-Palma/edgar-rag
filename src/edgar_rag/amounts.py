@@ -283,6 +283,51 @@ def _after_number(previous: str, word: str) -> bool:
     return previous in _TENS_WORDS and 0 < _WORD_VALUES[word] < 10
 
 
+_SCALE_NAMES = ((10**9, "billion"), (10**6, "million"), (10**3, "thousand"))
+
+
+def number_in_words(number: str) -> str:
+    """``1,234.5`` as ``one thousand two hundred thirty-four point five``.
+
+    The inverse of ``spelled_amounts_in`` for a number in digits below a
+    trillion, without its ``$`` or scale word.
+
+    Raises:
+        ValueError: when ``number`` is not digits with optional commas and decimals.
+    """
+    if not re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?", number):
+        raise ValueError(f"not a number in digits: {number!r}")
+    whole, _, fraction = number.replace(",", "").partition(".")
+    if int(whole) >= 10**12:
+        raise ValueError(f"a trillion or more: {number!r}")
+    words = _whole_in_words(int(whole)) if int(whole) else "zero"
+    if fraction:
+        words += " point " + " ".join(_UNIT_WORDS[int(digit)] for digit in fraction)
+    return words
+
+
+def _whole_in_words(n: int) -> str:
+    words = []
+    for size, name in _SCALE_NAMES:
+        count, n = divmod(n, size)
+        if count:
+            words.append(f"{_below_thousand_in_words(count)} {name}")
+    if n:
+        words.append(_below_thousand_in_words(n))
+    return " ".join(words)
+
+
+def _below_thousand_in_words(n: int) -> str:
+    hundreds, rest = divmod(n, 100)
+    words = [f"{_UNIT_WORDS[hundreds]} hundred"] if hundreds else []
+    tens, unit = divmod(rest, 10)
+    if rest >= 20:
+        words.append(_TENS_WORDS[tens - 2] + (f"-{_UNIT_WORDS[unit]}" if unit else ""))
+    elif rest:
+        words.append(_UNIT_WORDS[rest])
+    return " ".join(words)
+
+
 def amount_matches(
     amount: Amount, gold: Decimal, relative_tolerance: Decimal = DEFAULT_RELATIVE_TOLERANCE
 ) -> bool:

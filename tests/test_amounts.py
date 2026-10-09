@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from edgar_rag.amounts import amounts_in, spelled_amounts_in
+from edgar_rag.amounts import amounts_in, number_in_words, spelled_amounts_in
 
 
 @pytest.mark.parametrize(
@@ -145,3 +145,18 @@ _ALPHABET += ["point", "quarter", "quarters", "percent", "dollars", "of"]
 def test_any_run_of_number_words_is_read_or_marked_unreadable_never_raises(words):
     for amount in spelled_amounts_in(" ".join(words)):
         assert amount.is_readable or (amount.value, amount.unit) == (Decimal(0), Decimal(0))
+
+
+@given(st.integers(min_value=0, max_value=999_999_999_999), st.integers(0, 3))
+def test_a_number_written_in_words_reads_back_to_its_value(n, decimals):
+    number = f"{n / 10**decimals:,.{decimals}f}"
+
+    (amount,) = spelled_amounts_in(f"{number_in_words(number)} dollars")
+
+    assert amount.value == Decimal(number.replace(",", ""))
+
+
+@pytest.mark.parametrize("number", ["1.2.3", "-5", "1,23", "1000000000000", ""])
+def test_number_in_words_refuses_what_is_not_a_number_below_a_trillion(number):
+    with pytest.raises(ValueError, match=r"not a number|trillion"):
+        number_in_words(number)
