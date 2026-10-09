@@ -4,6 +4,41 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-10-09
+
+A patch to the citation check of 1.1.0, whose README promised that figures in
+words are checked, and whose parser read some of them wrong.
+
+### Fixed
+
+- A figure in words is read whole. 1.1.0 read `one point five billion
+  dollars` as five billion, so a passage printing $5 billion backed it; it did
+  not read `two and a half billion` at all, and split `two thousand five
+  hundred dollars` into two figures. Words now compose (`hundred`, scale words
+  stepping down or multiplying, `point`, `a half`), and words that do not
+  compose are a figure with no value, which backs nothing and nothing backs.
+- The `no_network` test fixture also refuses `socket.connect_ex`.
+
+### Added
+
+- Two positive controls in `docs/eval/report-v1.1-citations.md`, not
+  pre-registered. A reference number put in place of a cited figure is
+  accepted by v1.0.0 in 88/88 and withheld by the M1 rules in 55/88, so the
+  M1 zero bounds support that comes only from a reference number. Figures
+  rewritten in words are counted by M2 in 85/85.
+- A "Deviations from the protocol" section in the same report: the
+  percentage rule and the 3-digit rescale floor came from issue #10, not from
+  the protocol's scope, and each alone changes 0 of 139 outcomes.
+
+### Changed
+
+- The rescale rule is named for what it counts: 3 digits, trailing zeros
+  included, not 3 significant digits. The README says so, and lists the
+  round-count and `(in percent)` cases among the limitations.
+- The report's arm tables collapse arms that admit the same cases.
+
+The counts of M1, M2 and M3 are unchanged.
+
 ## [1.1.0] - 2026-10-09
 
 v1.1 changes the citation check, not the gate. The headline numbers of
@@ -57,5 +92,6 @@ First public release.
   attainable, H2 not met; the brier relevance model was removed and the
   default gate is `none` ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
 
+[1.1.1]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Rodrigo-Palma/edgar-rag/releases/tag/v1.0.0
