@@ -20,57 +20,104 @@ item of the chunk the run retrieved. Replayed under the v1.0.0 rules, they
 give back the outcome the run recorded for 139 of 139 cases. Every
 count below rests on that reconstruction.
 
+The arms are masks over the same generations
+([ADR-0015](../adr/0015-one-generation-serves-every-arm.md)): arms that admit
+the same cases share a row, and the counts of different rows overlap, so they
+are not independent measurements.
+
 ## M1: reference numbers as support
 
 Answered cases the v1.0.0 rules withhold as `unsupported_claim` once the item label is not read and `Note`, `page`, `Item`, `Exhibit` and `Section` numbers are removed from the cited passages.
 
-| arm | withheld, k/n (exploratory, Wilson 95%) |
+| arms | withheld, k/n (exploratory, Wilson 95%) |
 |---|---|
-| A | 0/117 = 0.0% [0.0%, 3.2%]; at most 3.2% (95%) |
-| B | 0/97 = 0.0% [0.0%, 3.8%]; at most 3.8% (95%) |
-| C | 0/99 = 0.0% [0.0%, 3.7%]; at most 3.7% (95%) |
-| D | 0/117 = 0.0% [0.0%, 3.2%]; at most 3.2% (95%) |
-| E | 0/99 = 0.0% [0.0%, 3.7%]; at most 3.7% (95%) |
-| F | 0/97 = 0.0% [0.0%, 3.8%]; at most 3.8% (95%) |
+| A, D | 0/117 = 0.0% [0.0%, 3.2%]; at most 3.2% (95%) |
+| B, F | 0/97 = 0.0% [0.0%, 3.8%]; at most 3.8% (95%) |
+| C, E | 0/99 = 0.0% [0.0%, 3.7%]; at most 3.7% (95%) |
 
 ## M2: figures only in words
 
 Answered cases whose every figure is written in words (number words with a scale word, `percent` or `dollars`); v1.0.0 did not check these.
 
-| arm | answers, k/n (exploratory, Wilson 95%) |
+| arms | answers, k/n (exploratory, Wilson 95%) |
 |---|---|
-| A | 0/117 = 0.0% [0.0%, 3.2%]; at most 3.2% (95%) |
-| B | 0/97 = 0.0% [0.0%, 3.8%]; at most 3.8% (95%) |
-| C | 0/99 = 0.0% [0.0%, 3.7%]; at most 3.7% (95%) |
-| D | 0/117 = 0.0% [0.0%, 3.2%]; at most 3.2% (95%) |
-| E | 0/99 = 0.0% [0.0%, 3.7%]; at most 3.7% (95%) |
-| F | 0/97 = 0.0% [0.0%, 3.8%]; at most 3.8% (95%) |
+| A, D | 0/117 = 0.0% [0.0%, 3.2%]; at most 3.2% (95%) |
+| B, F | 0/97 = 0.0% [0.0%, 3.8%]; at most 3.8% (95%) |
+| C, E | 0/99 = 0.0% [0.0%, 3.7%]; at most 3.7% (95%) |
 
 ## M3: the v1.1 check against the recorded outcome
 
 The v1.1 check over the same generations: answered cases it withholds, and withheld cases (`no_valid_citation`, `unsupported_claim`) it would answer.
 
-| arm | answered, now withheld (exploratory, Wilson 95%) | withheld, now answered (exploratory, Wilson 95%) |
+| arms | answered, now withheld (exploratory, Wilson 95%) | withheld, now answered (exploratory, Wilson 95%) |
 |---|---|---|
-| A | 0/117 = 0.0% [0.0%, 3.2%]; at most 3.2% (95%) | 0/22 = 0.0% [0.0%, 14.9%]; at most 14.9% (95%) |
-| B | 0/97 = 0.0% [0.0%, 3.8%]; at most 3.8% (95%) | 0/19 = 0.0% [0.0%, 16.8%]; at most 16.8% (95%) |
-| C | 0/99 = 0.0% [0.0%, 3.7%]; at most 3.7% (95%) | 0/21 = 0.0% [0.0%, 15.5%]; at most 15.5% (95%) |
-| D | 0/117 = 0.0% [0.0%, 3.2%]; at most 3.2% (95%) | 0/22 = 0.0% [0.0%, 14.9%]; at most 14.9% (95%) |
-| E | 0/99 = 0.0% [0.0%, 3.7%]; at most 3.7% (95%) | 0/21 = 0.0% [0.0%, 15.5%]; at most 15.5% (95%) |
-| F | 0/97 = 0.0% [0.0%, 3.8%]; at most 3.8% (95%) | 0/19 = 0.0% [0.0%, 16.8%]; at most 16.8% (95%) |
+| A, D | 0/117 = 0.0% [0.0%, 3.2%]; at most 3.2% (95%) | 0/22 = 0.0% [0.0%, 14.9%]; at most 14.9% (95%) |
+| B, F | 0/97 = 0.0% [0.0%, 3.8%]; at most 3.8% (95%) | 0/19 = 0.0% [0.0%, 16.8%]; at most 16.8% (95%) |
+| C, E | 0/99 = 0.0% [0.0%, 3.7%]; at most 3.7% (95%) | 0/21 = 0.0% [0.0%, 15.5%]; at most 15.5% (95%) |
 
 ## Cases that change
 
 None: no case changes outcome under M1 or the v1.1 check.
 
-## Positive control (not pre-registered)
+## Positive controls (not pre-registered)
 
 A zero only means something if the check could have said otherwise on these
-same passages. For every answered case (arm A) that states a figure in
-digits, the last digit of its first such figure is moved up by one and the
-answer is judged again under the v1.1 check: it withholds 102/105 = 97.1% [91.9%, 99.0%]
+same passages. Each control below plants one defect into the answers the run
+accepted (arm A) and judges them again; it measures the replay, it is not a
+result about the v1 answers.
+
+**A wrong digit.** For every answered case that states a figure in digits,
+the last digit of its first such figure is moved up by one and the answer is
+judged again under the v1.1 check: it withholds 102/105 = 97.1% [91.9%, 99.0%]
 (exploratory, Wilson 95%). The rest are answers whose changed figure the cited
-passage happens to print as well. This checks the replay, it is not a result.
+passage happens to print as well.
+
+**A reference number as a figure (power of M1).** For every answered case
+whose cited passage carries a note, page, item, exhibit or section number that
+it prints nowhere else as a figure, the first figure of the citing sentence is
+replaced by that number (`$96.2 billion` becomes `$21 billion` for `page 21`).
+The v1.0.0 rules accept 88/88 = 100.0% [95.8%, 100.0%]; the M1 rules withhold
+55/88 = 62.5% [52.1%, 71.9%], and the v1.1 check 55/88 = 62.5% [52.1%, 71.9%] (exploratory, Wilson 95%).
+The ones M1 does not withhold are backed by the text of the passage anyway:
+a reference number is short, so the planted figure is held only to one or
+two digits, and a figure of the passage rounds to it at some scale (`$8
+million` is `8,250` in a table in thousands). M1 sees a reference number
+standing in for a figure only when no figure of the text rounds to it, so its
+zero bounds that case, not every use of a reference number.
+
+**Figures in words (power of M2).** For every answered case whose figures in
+digits can all be written in words, and whose first figure names dollars, a
+scale or a percentage, every figure is written in words (`$6.1 billion`
+becomes `six point one billion dollars`). M2 counts 85/85 = 100.0% [95.7%, 100.0%]; the
+v1.1 check still answers 84/85 = 98.8% [93.6%, 99.8%]. With the first figure one digit off,
+the v1.1 check withholds 82/85 = 96.5% [90.1%, 98.8%] and v1.0.0 accepts 85/85 = 100.0% [95.7%, 100.0%]
+(exploratory, Wilson 95%). Withheld although right: `pos:MCD:2025:dividends_paid:y0:p1`. Answered although
+wrong: `narrative:answerable:17`, `other_company:WMT:2024:NVDA:dividends_paid:y1:p2`, `pos:UNH:2024:operating_income:y0:p2`, the answers the wrong-digit control misses too.
+
+## Deviations from the protocol
+
+1. **Two rules outside the stated scope.** Section 1 of the protocol names two
+   defects: reference numbers backing figures, and figures in words. The v1.1
+   check also shipped rules 3 and 4 of the fix proposed in
+   [issue #10](https://github.com/Rodrigo-Palma/edgar-rag/issues/10): a
+   percentage is backed only by a percentage, and a number printed without a
+   scale word is rescaled only when it has at least 3 digits, trailing zeros
+   counted. The protocol names neither. Both, the 3 included, are written in
+   issue #10 as opened on 2026-10-02 and never edited, a week before the
+   protocol (`95eb85a`) and the measurement (`3078911`); 3 is above the one-
+   and two-digit reference numbers of its probe (`Item 7`, `Note 3`, `page
+   21`). M3 counts them only together with the rest. Each switched off alone,
+   over the same 139 generations, changes the outcome of the v1.1 check
+   in 0 (the percentage rule) and 0 (the 3-digit floor) of
+   139 cases.
+2. **Positive controls.** None of the controls above is pre-registered: the
+   wrong digit was added with the measurement, the reference number and the
+   figures in words after review, in v1.1.1.
+3. **The parser of figures in words, v1.1.1.** v1.1.0 read `one point five
+   billion dollars` as five billion, did not read `two and a half billion`,
+   and read `two thousand five hundred dollars` as two figures. v1.1.1 reads
+   them whole and holds words that do not compose as a figure with no value.
+   This report is rebuilt with it; M1, M2 and M3 give the counts v1.1.0 gave.
 
 ## What this does not establish
 
@@ -79,3 +126,7 @@ passage happens to print as well. This checks the replay, it is not a result.
   paraphrase wrongly without figures.
 - Anything about another model, prompt or corpus. With n near 100 per arm, a
   zero still allows a rate of a few percent, as printed next to it.
+- That figures in words are read in every form. Number words right after
+  `half`, `quarters`, `thirds`, `fifths` or `tenths` are read as a fraction
+  and held with no value, so `the first three quarters of one point seven
+  seven dollars` is withheld although right; it fails closed.
