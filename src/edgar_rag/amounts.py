@@ -11,7 +11,13 @@ Parsing rules, deliberately few and all tested: thousands commas; an optional
 plurals); a leading minus (hyphen, minus sign or en dash) or accounting
 parentheses wrapping the amount (``(1.2) billion`` or ``(1.2 billion)``) mark a
 negative. A bare four-digit number from 1900 to 2099 with no ``$``, scale or
-decimals is read as a year and ignored.
+decimals is read as a year and ignored. An amount followed by ``%`` or
+``percent`` is marked as a percentage; its value and text are unchanged.
+
+``spelled_amounts_in`` reads a figure written in words, but only one that says
+what it counts: number words followed by a scale word, ``percent`` or
+``dollars`` (``ninety billion dollars``, ``twelve percent``). Number words
+alone (``two segments``) are wording, not a figure.
 
 ``amount_matches`` holds the two ways an amount states a value: within a
 relative tolerance, or equal to the value rounded to the digits the amount
@@ -45,6 +51,46 @@ _AMOUNT = re.compile(
     """,
     re.VERBOSE | re.IGNORECASE,
 )
+_PERCENT_AFTER = re.compile(r"\s*(?:%|percent\b|per\s+cent\b)", re.IGNORECASE)
+
+_UNIT_WORDS = (
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+)
+_TENS_WORDS = ("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
+_WORD_VALUES = {
+    **{word: value for value, word in enumerate(_UNIT_WORDS)},
+    **{word: 10 * value for value, word in enumerate(_TENS_WORDS, start=2)},
+}
+_NUMBER_WORD = "(?:" + "|".join(sorted(_WORD_VALUES, key=len, reverse=True)) + "|hundred)"
+_SPELLED = re.compile(
+    rf"""
+    (?<![\w-])
+    (?P<number>{_NUMBER_WORD}(?:[\s-]+(?:and[\s-]+)?{_NUMBER_WORD})*)
+    (?:\s+(?P<scale>thousand|million|billion|trillion)s?)?
+    (?:\s+(?P<kind>percent|per\s+cent|dollars?))?
+    \b
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +100,7 @@ class Amount:
     value: Decimal
     unit: Decimal
     text: str
+    is_percent: bool = False
 
 
 def _looks_like_year(number: str, has_context: bool) -> bool:
@@ -81,9 +128,44 @@ def amounts_in(text: str) -> tuple[Amount, ...]:
                 value=-value if is_negative else value,
                 unit=scale * Decimal(10) ** -decimals,
                 text=match.group(0).strip(),
+                is_percent=bool(_PERCENT_AFTER.match(text, match.end())),
             )
         )
     return tuple(found)
+
+
+def spelled_amounts_in(text: str) -> tuple[Amount, ...]:
+    """Every figure written in words in ``text`` that names a scale, a percentage or dollars.
+
+    The unit is the scale the words name (``ninety billion`` shows billions), so
+    the figure is held to the precision it was written at, like one in digits.
+    """
+    found = []
+    for match in _SPELLED.finditer(text):
+        scale_word, kind = match["scale"], match["kind"]
+        if not (scale_word or kind):
+            continue
+        scale = _SCALES[scale_word.lower()] if scale_word else Decimal(1)
+        found.append(
+            Amount(
+                value=_spelled_value(match["number"]) * scale,
+                unit=scale,
+                text=match.group(0).strip(),
+                is_percent=bool(kind and kind.lower().startswith("per")),
+            )
+        )
+    return tuple(found)
+
+
+def _spelled_value(words: str) -> Decimal:
+    """``one hundred twenty-five`` is 125: a hundred multiplies what came before it."""
+    total = 0
+    for word in re.split(r"[\s-]+", words.lower()):
+        if word == "hundred":
+            total = max(total, 1) * 100
+        elif word != "and":
+            total += _WORD_VALUES[word]
+    return Decimal(total)
 
 
 def amount_matches(

@@ -5,7 +5,7 @@ import unicodedata
 from dataclasses import dataclass
 from decimal import Decimal
 
-from edgar_rag.amounts import Amount, amount_matches, amounts_in
+from edgar_rag.amounts import Amount, amount_matches, amounts_in, spelled_amounts_in
 from edgar_rag.domain import AbstentionReason, Citation, ScoredChunk
 
 STOPWORDS = frozenset(
@@ -62,6 +62,50 @@ _NOT_A_FIGURE = re.compile(
     r"|\bitems?\s+\d+[a-c]?\b"
     r"|\b\d+(?:st|nd|rd|th)\b",
     re.IGNORECASE,
+)
+# The same, and the references a filing makes to its own parts: "See Note 3 on
+# page 21", "Exhibit 10.1", "Section 404". A note, page or item number is an
+# integer not followed by a decimal or a percent sign, so "Notes 2.5%" stays.
+_REFERENCE = re.compile(
+    _NOT_A_FIGURE.pattern + r"|\b(?:notes?|pages?)\s+\d{1,4}[a-z]?\b(?![.,]\d|\s*%)"
+    r"|\b(?:exhibits?|sections?)\s+\d+(?:\.\d+)*[a-z]?\b",
+    re.IGNORECASE,
+)
+MIN_DIGITS_TO_RESCALE = 3
+
+
+@dataclass(frozen=True, slots=True)
+class SupportRules:
+    """What counts as a passage backing a figure.
+
+    ``CURRENT`` is what the service runs. ``V1_0`` is the check v1.0.0 shipped,
+    kept only so the frozen v1 run can be replayed under it and the change
+    measured (``docs/eval/protocol-v1.1.md``); nothing serves answers with it.
+    """
+
+    read_item_label: bool
+    strip_passage_references: bool
+    strip_claim_references: bool
+    percent_backs_only_percent: bool
+    min_digits_to_rescale: int
+    read_spelled: bool
+
+
+V1_0 = SupportRules(
+    read_item_label=True,
+    strip_passage_references=False,
+    strip_claim_references=False,
+    percent_backs_only_percent=False,
+    min_digits_to_rescale=0,
+    read_spelled=False,
+)
+CURRENT = SupportRules(
+    read_item_label=False,
+    strip_passage_references=True,
+    strip_claim_references=True,
+    percent_backs_only_percent=True,
+    min_digits_to_rescale=MIN_DIGITS_TO_RESCALE,
+    read_spelled=True,
 )
 
 
@@ -147,44 +191,54 @@ class ClaimFailure:
     finding: str
 
 
-def check_claims(text: str, passages: tuple[ScoredChunk, ...]) -> ClaimFailure | None:
+def check_claims(
+    text: str, passages: tuple[ScoredChunk, ...], rules: SupportRules = CURRENT
+) -> ClaimFailure | None:
     """Hold each sentence of an answer to the passages it cites, or say why not.
 
     A single valid marker used to approve the whole answer, so a second
     sentence could state any figure, and a marker could point at a passage
     that never wrote it. Two rules, both lexical and free:
 
-    1. A sentence that states a figure (has a digit) or says enough to be a
-       claim (more than ``MAX_UNCITED_CONTENT_WORDS`` content words) carries
-       at least one valid marker, else ``no_valid_citation``.
+    1. A sentence that states a figure (a digit, or a figure in words) or says
+       enough to be a claim (more than ``MAX_UNCITED_CONTENT_WORDS`` content
+       words) carries at least one valid marker, else ``no_valid_citation``.
     2. Every amount in that sentence appears in one of the passages it cites,
        else ``unsupported_claim``. "Appears" means the passage writes the same
        value at the precision the answer shows: ``$31.4 billion`` is backed by
        ``31,370`` under an "(in millions)" header, ``$31,371 million`` is not.
 
-    What this does not check: wording without digits (a cited sentence can
-    still paraphrase wrongly), figures the model computed (a growth rate the
-    passage does not print is withheld, correct or not), and the magnitude of
-    a passage figure printed without a scale word, which is read at any scale
-    from ones to billions because tables state it once in a header.
+    What a passage offers as support: the numbers of its text, not of its item
+    label, with references to its own parts (``Note 3``, ``page 21``,
+    ``Exhibit 10.1``) removed; a percentage backs only a percentage; a number
+    printed with no scale word is read at another scale only when it has at
+    least ``MIN_DIGITS_TO_RESCALE`` significant digits, because a table states
+    its unit once in a header but ``12 members`` is not twelve billion.
+
+    The finding names the sentence and its markers, never the figure: the
+    figure is the part of the text being withheld.
+
+    What this does not check: wording without figures (a cited sentence can
+    still paraphrase wrongly), and figures the model computed (a growth rate
+    the passage does not print is withheld, correct or not).
     """
-    support = tuple(_amounts_supporting(scored) for scored in passages)
+    support = tuple(_amounts_supporting(scored, rules) for scored in passages)
     for position, sentence in enumerate(_answer_sentences(text), start=1):
-        claim = _claim_text(sentence)
+        claim = _claim_text(sentence, rules)
         cited = markers_in(sentence, len(passages))
         if not cited:
-            if _needs_marker(claim):
+            if _needs_marker(claim, rules):
                 return ClaimFailure(
                     AbstentionReason.NO_VALID_CITATION,
                     f"sentence {position} states a fact without a valid marker",
                 )
             continue
-        for amount in amounts_in(claim):
-            if not any(_supports(amount, found) for n in cited for found in support[n - 1]):
+        for amount in _amounts(claim, rules):
+            if not any(_supports(amount, found, rules) for n in cited for found in support[n - 1]):
                 where = ", ".join(f"[{n}]" for n in sorted(cited))
                 return ClaimFailure(
                     AbstentionReason.UNSUPPORTED_CLAIM,
-                    f"sentence {position} states {amount.text}, which {where} does not contain",
+                    f"sentence {position} states a figure that {where} does not contain",
                 )
     return None
 
@@ -222,41 +276,70 @@ def _split_line(line: str) -> list[str]:
     return parts
 
 
-def _claim_text(sentence: str) -> str:
-    """The sentence as a statement: no markers, form names, item labels or ordinals."""
+def _claim_text(sentence: str, rules: SupportRules = CURRENT) -> str:
+    """The sentence as a statement: no markers, form names, references or ordinals."""
     folded = unicodedata.normalize("NFKC", sentence)
-    return _NOT_A_FIGURE.sub(" ", _ANY_MARKER.sub(" ", folded))
+    pattern = _REFERENCE if rules.strip_claim_references else _NOT_A_FIGURE
+    return pattern.sub(" ", _ANY_MARKER.sub(" ", folded))
 
 
-def _needs_marker(claim: str) -> bool:
-    return any(char.isdigit() for char in claim) or (
-        len(_content_words(claim)) > MAX_UNCITED_CONTENT_WORDS
+def _amounts(text: str, rules: SupportRules) -> tuple[Amount, ...]:
+    spelled = spelled_amounts_in(text) if rules.read_spelled else ()
+    return amounts_in(text) + spelled
+
+
+def _needs_marker(claim: str, rules: SupportRules = CURRENT) -> bool:
+    return (
+        any(char.isdigit() for char in claim)
+        or (rules.read_spelled and bool(spelled_amounts_in(claim)))
+        or len(_content_words(claim)) > MAX_UNCITED_CONTENT_WORDS
     )
 
 
-def _amounts_supporting(scored: ScoredChunk) -> tuple[Amount, ...]:
-    """Every amount the model was shown for this passage, its item label included."""
+def _amounts_supporting(scored: ScoredChunk, rules: SupportRules = CURRENT) -> tuple[Amount, ...]:
+    """Every amount the passage states, under ``rules``."""
     chunk = scored.chunk
-    return amounts_in(unicodedata.normalize("NFKC", f"{chunk.item} {chunk.text}"))
+    shown = f"{chunk.item} {chunk.text}" if rules.read_item_label else chunk.text
+    folded = unicodedata.normalize("NFKC", shown)
+    if rules.strip_passage_references:
+        folded = _REFERENCE.sub(" ", folded)
+    return _amounts(folded, rules)
 
 
-def _scales(amount: Amount) -> tuple[Decimal, ...]:
-    """Unscaled numbers could be in thousands, millions or billions; scaled ones cannot."""
-    return (Decimal(1),) if _SCALE_WORD.search(amount.text) else _SCALES
+def _is_scaled(amount: Amount) -> bool:
+    return bool(_SCALE_WORD.search(amount.text))
 
 
-def _supports(claimed: Amount, found: Amount) -> bool:
+def _scales(amount: Amount, rules: SupportRules) -> tuple[Decimal, ...]:
+    """Unscaled numbers could be in thousands, millions or billions; scaled ones cannot.
+
+    Nor can a percentage, once percentages are their own kind.
+    """
+    if _is_scaled(amount) or (rules.percent_backs_only_percent and amount.is_percent):
+        return (Decimal(1),)
+    return _SCALES
+
+
+def _significant_digits(amount: Amount) -> int:
+    return len(re.sub(r"\D", "", amount.text).lstrip("0"))
+
+
+def _supports(claimed: Amount, found: Amount, rules: SupportRules = CURRENT) -> bool:
     """Whether ``found`` rounds to ``claimed`` at the precision ``claimed`` shows.
 
     Signs are compared as magnitudes, because "a loss of $1,234 million" and
     "(1,234)" are the same figure in words and in accounting notation.
     """
+    if rules.percent_backs_only_percent and claimed.is_percent != found.is_percent:
+        return False
+    rescalable = _significant_digits(found) >= rules.min_digits_to_rescale
     return any(
         amount_matches(
             Amount(value=abs(claimed.value) * mine, unit=claimed.unit * mine, text=claimed.text),
             abs(found.value) * theirs,
             relative_tolerance=Decimal(0),
         )
-        for mine in _scales(claimed)
-        for theirs in _scales(found)
+        for mine in _scales(claimed, rules)
+        for theirs in _scales(found, rules)
+        if theirs == 1 or rescalable
     )

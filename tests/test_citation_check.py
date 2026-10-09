@@ -16,7 +16,8 @@ import numpy as np
 import pytest
 
 from edgar_rag.answer import Answerer
-from edgar_rag.domain import AbstentionReason, Answer, Chunk
+from edgar_rag.citations import V1_0, check_claims
+from edgar_rag.domain import AbstentionReason, Answer, Chunk, ScoredChunk
 from edgar_rag.gate import CosineGate
 from edgar_rag.index import CorpusIndex
 from tests.fakes import SCOPE, FakeEmbedder, FakeGenerator, one_filing_index
@@ -82,13 +83,18 @@ def test_a_long_sentence_with_no_marker_abstains():
     ],
 )
 def test_a_figure_the_cited_passage_does_not_contain_abstains(reply, missing):
-    """The last two: the figure exists in passage 2 or nowhere, and [1] was cited."""
+    """The last two: the figure exists in passage 2 or nowhere, and [1] was cited.
+
+    The detail names the sentence and the markers, never the figure: the figure
+    is the part of the text the check withheld (issue #11).
+    """
     answer = _ask(reply)
 
     assert answer.abstained is True
     assert answer.reason is AbstentionReason.UNSUPPORTED_CLAIM
     assert answer.text is None
-    assert missing in answer.detail
+    assert "sentence 1 states a figure that [1] does not contain" in answer.detail
+    assert missing not in answer.detail
 
 
 def test_an_injected_figure_cited_to_a_legitimate_passage_abstains():
@@ -177,3 +183,104 @@ def test_out_of_range_markers_are_ignored_without_error(marker):
     assert alone.reason is AbstentionReason.NO_VALID_CITATION
     assert beside.abstained is False
     assert [citation.marker for citation in beside.citations] == [1]
+
+
+# Issue #10: numbers that name a part of the filing, and figures in words.
+# The probe passage of the issue, under the label "Item 7".
+PROBE = (
+    "Total net sales increased during fiscal 2024 compared to fiscal 2023, "
+    "driven by Services. See Note 3 on page 21."
+)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Net sales were $7 billion [1].",
+        "Gross margin grew 7% [1].",
+        "Services revenue was $3.0 billion [1].",
+        "R&D was $21 million [1].",
+    ],
+    ids=["item-label-as-billions", "item-label-as-percent", "note-as-billions", "page-as-millions"],
+)
+def test_a_reference_number_does_not_back_a_figure(reply):
+    """The item label, a note number and a page number are not figures of the passage."""
+    answer = _ask(reply, _index(first=PROBE))
+
+    assert answer.abstained is True
+    assert answer.reason is AbstentionReason.UNSUPPORTED_CLAIM
+
+
+def test_a_spelled_out_figure_the_cited_passage_does_not_contain_abstains():
+    answer = _ask("Revenue was ninety billion dollars [1].", _index(first=PROBE))
+
+    assert answer.reason is AbstentionReason.UNSUPPORTED_CLAIM
+    assert "ninety" not in answer.detail
+
+
+def test_a_spelled_out_figure_needs_a_marker():
+    answer = _ask("The company designs phones [1]. Revenue was ninety billion dollars.")
+
+    assert answer.reason is AbstentionReason.NO_VALID_CITATION
+
+
+@pytest.mark.parametrize(
+    ("reply", "passage"),
+    [
+        ("Revenue was ninety billion dollars [1].", "Net sales were $90.0 billion."),
+        ("Revenue was $90 billion [1].", "Net sales were ninety billion dollars."),
+        ("Revenue grew twelve percent [1].", "Net sales grew 12% in fiscal 2024."),
+        ("Gross margin was 46.2% [1].", "Gross margin was 46.2 percent of net sales."),
+        ("The company has two segments [1].", "The company reports 2 segments."),
+        ("Services revenue was $96.2 billion [1].", "Services (in millions) 96,169"),
+        ("The company employed 164,000 people [1].", "The company had 164,000 employees."),
+    ],
+    ids=[
+        "words-backed-by-digits",
+        "digits-backed-by-words",
+        "percent-in-words",
+        "percent-sign-and-word",
+        "count-in-words-is-not-a-figure",
+        "table-figure-at-scale",
+        "unscaled-count",
+    ],
+)
+def test_a_figure_the_passage_states_in_another_form_is_answered(reply, passage):
+    """The stricter rules still accept a figure the passage prints in another form."""
+    answer = _ask(reply, _index(first=passage))
+
+    assert answer.abstained is False, answer.detail
+
+
+@pytest.mark.parametrize(
+    ("reply", "passage"),
+    [
+        ("Gross margin grew 12% [1].", "The company opened 12 stores."),
+        ("The company opened 12 stores [1].", "Gross margin grew 12%."),
+        ("Revenue was $12 billion [1].", "The board has 12 members."),
+        ("Revenue was $3.5 billion [1].", "The plan vests over 3.5 years."),
+    ],
+    ids=["percent-needs-percent", "count-is-not-a-percent", "short-number-at-scale", "decimal"],
+)
+def test_a_number_of_another_kind_or_too_short_to_scale_does_not_back_a_figure(reply, passage):
+    """A percentage only backs a percentage; under three digits, no number is rescaled."""
+    answer = _ask(reply, _index(first=passage))
+
+    assert answer.reason is AbstentionReason.UNSUPPORTED_CLAIM
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Net sales were $7 billion [1].",
+        "Gross margin grew 7% [1].",
+        "Services revenue was $3.0 billion [1].",
+        "R&D was $21 million [1].",
+    ],
+)
+def test_the_v1_0_rules_still_accept_the_probe_answers(reply):
+    """The frozen v1 run is replayed under V1_0 to measure the fix, so V1_0 must stay v1.0.0."""
+    passage = ScoredChunk(Chunk(chunk_id="Item 7#0", item="Item 7", title="MD&A", text=PROBE), 0.9)
+
+    assert check_claims(reply, (passage,), rules=V1_0) is None
+    assert check_claims(reply, (passage,)) is not None

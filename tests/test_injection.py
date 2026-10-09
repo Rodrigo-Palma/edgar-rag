@@ -281,12 +281,19 @@ def test_only_the_exact_token_is_a_refusal(index, reply):
 
 
 def test_a_token_followed_by_a_cited_answer_is_checked_as_an_answer(index):
+    """A nonce without a standalone digit, so the token states no figure.
+
+    With ``0badc0de`` the citation check reads the leading ``0`` as a figure.
+    Up to v1.0.0 the item label ``Item 1`` backed it at a scale of thousands;
+    from v1.1 labels back nothing, and that answer is withheld, rightly.
+    """
+    nonce = "deadc0de"
     answer = Answerer(
         index,
         FakeEmbedder({QUESTION: [1.0, 0.0]}),
-        FakeGenerator(f"REFUSE-{NONCE} The Company designs phones [1]."),
+        FakeGenerator(f"REFUSE-{nonce} The Company designs phones [1]."),
         CosineGate(0.5),
-        nonce=FixedNonce(NONCE),
+        nonce=FixedNonce(nonce),
     ).ask(QUESTION, SCOPE, top_k=2)
 
     assert answer.reason != DECLINED

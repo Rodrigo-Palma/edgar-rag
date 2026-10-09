@@ -448,3 +448,16 @@ def test_the_service_is_served_on_the_local_machine_unless_configured_otherwise(
     telemetry.setLevel(logging.NOTSET)
 
     assert calls == [{"host": "127.0.0.1", "port": 8000}]
+
+
+def test_the_withheld_figure_appears_nowhere_in_the_ask_response(index):
+    """Issue #11: the detail of an unsupported_claim used to repeat the figure."""
+    reply = "The Company designs phones [1]. It sold $9.1 billion of them [1]."
+
+    response = _ask_with(index, generator=FakeGenerator(reply))
+
+    body = response.json()
+    assert body["abstained"] is True
+    assert body["reason"] == "unsupported_claim"
+    assert "9.1" not in response.text
+    assert "sentence 2 states a figure that [1] does not contain" in body["detail"]
