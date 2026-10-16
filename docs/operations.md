@@ -1,8 +1,10 @@
 # Operations
 
 Running the service beyond `make demo`: its limits, what it logs, what it
-costs per question, the container, and the headline run's tape. Every number
-here is copied from the [report](eval/report-v1.md), like the README's.
+costs per question, the container, and the headline run's tape. Every
+measured number here appears in the [report](eval/report-v1.md); `make readme`
+checks the value, not its place. Defaults, timeouts and status codes are
+configuration, not measurements.
 
 ## Limits
 

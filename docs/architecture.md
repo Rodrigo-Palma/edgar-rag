@@ -75,6 +75,7 @@ responses are in [operations](operations.md).
 | `src/edgar_rag/edgar/` | EDGAR client, XBRL facts and the 10-K parser |
 | `src/edgar_rag/amounts.py` | amounts as a filing writes them, shared by the evaluation and the citation check |
 | `src/edgar_rag/telemetry.py` | per-stage timing and the one JSON line per request |
+| `src/edgar_rag/lfs.py` | tells a Git LFS pointer from the file, and names the command to fetch it |
 | `src/edgar_rag/domain.py` | the values the pipeline passes around, and the ports it calls |
 | `eval/` | roster, pinned filings, snapshots, golden set, CI index, tape and baseline, frozen runs |
 | `docs/eval/` | protocol, report, addendum, deviations |

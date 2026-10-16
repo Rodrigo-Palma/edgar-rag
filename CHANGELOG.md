@@ -22,6 +22,11 @@ All notable changes to this project are recorded here. The format follows
   which its own Consequences already said reports only the non-ASCII case. It
   is retitled for the tokenizer collapse measured here, and its Context calls
   the issue possibly related, not the same.
+- `docs/operations.md` still said every number on it is copied from the
+  report; it now says what `make readme` checks, the value and not its place,
+  and that its defaults are configuration.
+- The module table of `docs/architecture.md` left out `src/edgar_rag/lfs.py`,
+  a layer of the import contract.
 - The README's guarantee table said every number is copied from the
   evaluation reports. `scripts/check_readme_numbers.py` checks that each
   number appears in a report, not that it sits on the right row, arm or
