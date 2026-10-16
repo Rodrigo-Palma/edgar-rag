@@ -15,6 +15,9 @@ All notable changes to this project are recorded here. The format follows
   now opens with a population table by kind (117 = 101 golden + 16
   narrative), and the README says the narratives stay out of the v1 metrics
   only.
+- The demo GIF was recorded before `make eval` also rebuilt the v1.1 report,
+  so its fourth scene printed one report path where the command now prints
+  two. It is re-recorded from the same tape.
 - The README's guarantee table said every number is copied from the
   evaluation reports. `scripts/check_readme_numbers.py` checks that each
   number appears in a report, not that it sits on the right row, arm or
