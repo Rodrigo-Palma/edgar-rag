@@ -20,11 +20,11 @@ what it counts: number words with a scale word, ``percent`` or ``dollars``
 segments``) are wording, not a figure. The words compose as English writes
 them: ``hundred`` multiplies, a scale word steps down (``one billion two
 hundred million``) or multiplies what is all below it (``one thousand two
-hundred million``), ``point`` takes digit words (``one point five billion``), and ``a
-half`` adds one half (``two and a half billion``). Words that do not compose
-under those rules (``three quarters percent``, ``two and three percent``) are
-kept as a figure marked unreadable, so a check holding it to a passage fails
-closed instead of reading part of it.
+hundred million``), ``point`` takes digit words (``one point five billion``,
+``one thousand point five``), and ``a half`` adds one half (``two and a half
+billion``). Words that do not compose under those rules (``three quarters
+percent``, ``two and three percent``) are kept as a figure marked unreadable,
+so a check holding it to a passage fails closed instead of reading part of it.
 
 ``amount_matches`` holds the two ways an amount states a value: within a
 relative tolerance, or equal to the value rounded to the digits the amount
@@ -198,13 +198,19 @@ def _spelled_value(words: list[str]) -> tuple[Decimal, Decimal] | None:
 
 
 def _decimal_value(words: list[str]) -> tuple[Decimal, Decimal] | None:
-    """``one point five billion``: an integer, ``point``, digit words, then at most one scale."""
+    """An integer, ``point``, digit words, then at most one scale word.
+
+    ``one point five billion`` scales the decimal, and ``twenty-five thousand
+    point zero`` ends the whole number with its scale word, as
+    ``number_in_words`` writes it. Both at once (``one million point five
+    billion``) does not compose.
+    """
     at = words.index("point")
     whole = _integer_value(words[:at])
     tail = words[at + 1 :]
     scale = _scale_of(tail[-1]) if tail else None
     digits = tail[:-1] if scale is not None else tail
-    if whole is None or whole[1] != 1 or not digits:
+    if whole is None or (whole[1] != 1 and scale is not None) or not digits:
         return None
     if any(_WORD_VALUES.get(word, 10) > 9 for word in digits):
         return None

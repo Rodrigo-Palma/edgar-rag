@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from edgar_rag.amounts import amounts_in, number_in_words, spelled_amounts_in
@@ -148,12 +148,30 @@ def test_any_run_of_number_words_is_read_or_marked_unreadable_never_raises(words
 
 
 @given(st.integers(min_value=0, max_value=999_999_999_999), st.integers(0, 3))
+@example(n=250_000, decimals=1)
 def test_a_number_written_in_words_reads_back_to_its_value(n, decimals):
     number = f"{n / 10**decimals:,.{decimals}f}"
 
     (amount,) = spelled_amounts_in(f"{number_in_words(number)} dollars")
 
     assert amount.value == Decimal(number.replace(",", ""))
+
+
+@pytest.mark.parametrize(
+    ("number", "value", "unit"),
+    [
+        ("1.0", Decimal("1.0"), Decimal("0.1")),
+        ("25,000.00", Decimal("25000.00"), Decimal("0.01")),
+        ("0.000", Decimal("0.000"), Decimal("0.001")),
+        ("1,000.5", Decimal("1000.5"), Decimal("0.1")),
+        ("2,000,000.25", Decimal("2000000.25"), Decimal("0.01")),
+    ],
+)
+def test_a_whole_number_ending_in_a_scale_word_takes_a_fraction(number, value, unit):
+    """``twenty-five thousand point zero zero``: the scale word is part of the whole number."""
+    (amount,) = spelled_amounts_in(f"{number_in_words(number)} dollars")
+
+    assert (amount.is_readable, amount.value, amount.unit) == (True, value, unit)
 
 
 @pytest.mark.parametrize("number", ["1.2.3", "-5", "1,23", "1000000000000", ""])
