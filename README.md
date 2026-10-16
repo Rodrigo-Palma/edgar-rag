@@ -284,10 +284,12 @@ does not report; on the headline run the model refused all of them itself
 (arm A, 0/75), so the guard bought nothing there.
 
 **The embedder discarded every proper noun.** On Ollama `0.18.0` with
-`nomic-embed-text` a capitalised token collapses onto one vector
-([ollama/ollama#15609](https://github.com/ollama/ollama/issues/15609)). Every
-text is lower-cased before embedding, and the flag is part of the index
-fingerprint ([ADR-0003](docs/adr/0003-lowercase-embedding-input.md)).
+`nomic-embed-text` a capitalised token collapsed onto one vector. The upstream
+issue, [ollama/ollama#15609](https://github.com/ollama/ollama/issues/15609),
+reports the non-ASCII case; the capitalised case was measured here, and it no
+longer reproduces on Ollama `0.35.1`
+([ADR-0003](docs/adr/0003-lowercase-embedding-input.md)). Every text is
+lower-cased before embedding, and the flag is part of the index fingerprint.
 
 **The section split is noisy.** `split_into_sections` mislabels some filings,
 so the one metric that depends on the label is reported only on filings that

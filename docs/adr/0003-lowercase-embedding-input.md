@@ -45,8 +45,15 @@ fixes the tokenizer.
   to serve on a mismatch is the planned fix, in the index format ADR.
   Done in [ADR-0004](0004-index-format-shard-per-filing.md): the manifest
   records the fingerprint and the load refuses a mismatch.
-- Revisit when ollama#15609 is closed: turn the flag off, re-index, and keep it
-  off only if the evaluation does not get worse.
+- Revisit when the collapse no longer reproduces on the Ollama in use: turn the
+  flag off, re-index, and keep it off only if the evaluation does not get
+  worse. The trigger was first "when ollama#15609 is closed", but that issue
+  only reports the non-ASCII case and is still open, while the capitalised case
+  is gone: on Ollama 0.35.1 with `nomic-embed-text` (2026-10-16),
+  `cos("Apple", "Cat") = 0.4863`, `cos("Apple", "Zebra") = 0.5247`,
+  `cos("apple", "petrobras") = 0.4075` as before, and
+  `cos("Apple", "apple") = 1.0000`. The flag stays on until that re-index and
+  evaluation are run.
 
 ## Enforced by
 

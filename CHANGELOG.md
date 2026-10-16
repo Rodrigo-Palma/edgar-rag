@@ -13,6 +13,12 @@ All notable changes to this project are recorded here. The format follows
   number appears in a report, not that it sits on the right row, arm or
   column: two numbers swapped between arms pass. The row, the `make readme`
   help and the checker's docstring now say what is checked.
+- The README cited ollama/ollama#15609 for the collapse of capitalised tokens,
+  but the issue reports only the non-ASCII case; the capitalised case was
+  measured here. The README now says so and that the collapse no longer
+  reproduces on Ollama 0.35.1. ADR-0003 revisits the lower-casing when the
+  collapse stops reproducing, not when the issue closes, and records the
+  0.35.1 measurement. The embedder still lower-cases by default.
 
 ## [1.1.2] - 2026-10-16
 
