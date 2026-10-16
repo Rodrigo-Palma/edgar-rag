@@ -19,6 +19,10 @@ All notable changes to this project are recorded here. The format follows
   127.0.0.1 (DNS rebinding) could read `/health` and spend the GPU on `/ask`.
   Only `127.0.0.1`, `localhost` and `[::1]` are accepted by default, others
   get `400`; `EDGAR_RAG_ALLOWED_HOSTS` changes the list.
+- `compose.yaml` told Linux users to run Ollama with `OLLAMA_HOST=0.0.0.0`,
+  which opens its unauthenticated API (generate, pull, delete) to the whole
+  network. It now says to bind the Docker bridge address, or to firewall the
+  port to the Docker subnets.
 ### Fixed
 
 - The v1.1 counts (0/117 answers and 0/22 withheld under arm A, 139

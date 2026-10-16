@@ -3,7 +3,16 @@
 # Ollama runs on the host because that is where the GPU is (Metal on a Mac is
 # not reachable from a container). Docker Desktop resolves
 # host.docker.internal to the host; on Linux, extra_hosts maps it to the
-# gateway, and Ollama has to listen beyond loopback (OLLAMA_HOST=0.0.0.0).
+# gateway, so Ollama has to listen on the Docker bridge instead of loopback.
+# Bind it to the bridge address, never 0.0.0.0: Ollama has no authentication,
+# and on every interface anyone on the network could generate, pull and
+# delete models. Find the address with `ip addr show docker0`, usually:
+#
+#   OLLAMA_HOST=172.17.0.1:11434
+#
+# Commands run on the host (the ingest) then reach it there too, with
+# EDGAR_RAG_OLLAMA_BASE_URL=http://172.17.0.1:11434. To keep it on 0.0.0.0
+# instead, firewall port 11434 to the Docker subnets.
 #
 #   EDGAR_RAG_INDEX=/path/to/index docker compose up --build
 #
