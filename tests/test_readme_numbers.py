@@ -41,8 +41,9 @@ def test_the_docs_pages_state_no_number_the_reports_do_not_print():
 def test_the_release_badge_reads_the_release_and_the_changelog_leads_with_the_version():
     """The badge asks GitHub for the latest release, so no version is typed into the README.
 
-    What stays typed by hand is the changelog, so its newest entry has to be
-    the version the package declares.
+    What stays typed by hand is the changelog, so its newest released entry has
+    to be the version the package declares. An ``[Unreleased]`` section, if
+    any, comes first and is not a version.
     """
     readme = (ROOT / "README.md").read_text("utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text("utf-8")
@@ -50,7 +51,11 @@ def test_the_release_badge_reads_the_release_and_the_changelog_leads_with_the_ve
 
     assert re.findall(r"img\.shields\.io/badge/release-", readme) == []
     assert "img.shields.io/github/v/release/Rodrigo-Palma/edgar-rag" in readme
-    assert re.findall(r"^## \[([\w.]+)\]", changelog, re.MULTILINE)[0] == version
+    headings = re.findall(r"^## \[([\w.]+)\]", changelog, re.MULTILINE)
+    released = headings[1:] if headings[0] == "Unreleased" else headings
+
+    assert "Unreleased" not in released
+    assert released[0] == version
 
 
 def test_numbers_copied_from_the_report_pass():
