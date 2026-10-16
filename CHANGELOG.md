@@ -23,6 +23,11 @@ All notable changes to this project are recorded here. The format follows
   which opens its unauthenticated API (generate, pull, delete) to the whole
   network. It now says to bind the Docker bridge address, or to firewall the
   port to the Docker subnets.
+- CI installed the newest uv and resolved `pip-audit` from a range at run
+  time, the only unpinned inputs of the pipeline. uv is pinned to the version
+  the Dockerfile copies, `pip-audit` to an exact version, and a test keeps the
+  workflows on the Dockerfile's uv.
+
 ### Fixed
 
 - The v1.1 counts (0/117 answers and 0/22 withheld under arm A, 139

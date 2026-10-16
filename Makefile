@@ -37,10 +37,11 @@ README_PAGES := README.md docs/architecture.md docs/operations.md
 readme: ## Every number in the README and its docs pages appears in docs/eval/ (no model, no network)
 	$(UV_RUN) python scripts/check_readme_numbers.py $(README_PAGES)
 
+# The auditor is pinned like everything else CI runs; bump it by hand.
 audit: ## Known vulnerabilities in the locked dependencies (needs network)
 	@tmp=$$(mktemp) && trap 'rm -f "$$tmp"' EXIT && \
 	uv export --frozen --format requirements-txt --no-emit-project --all-groups -o "$$tmp" >/dev/null && \
-	uvx --from 'pip-audit>=2.7,<3' pip-audit --strict --disable-pip --require-hashes -r "$$tmp"
+	uvx --from 'pip-audit==2.10.1' pip-audit --strict --disable-pip --require-hashes -r "$$tmp"
 
 serve: ## Serve answers from the index on 127.0.0.1:8000 (needs Ollama)
 	$(UV_RUN) edgar-rag serve
