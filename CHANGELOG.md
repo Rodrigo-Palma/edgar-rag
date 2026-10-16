@@ -4,6 +4,36 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-10-16
+
+A patch to the figure-in-words parser of 1.1.1, and dependency bumps. No
+measured case changes.
+
+### Fixed
+
+- A whole number that ends in a scale word now takes a fraction.
+  `number_in_words` writes 250,000.0 as `two hundred fifty thousand point
+  zero`, and 1.1.1 marked that unreadable: the rule meant to refuse a scale
+  word on both sides of `point` (`one million point five billion`) also
+  refused one on the whole part alone. It now refuses only the two together.
+  The round-trip property test pins the counterexample, and fractions of
+  zeros are a parametrized case.
+
+The fix does not change a measured outcome. `make eval-ci` judges every case
+of the dev split as in `eval/ci/baseline.json`, under every arm, and
+`docs/eval` (the citation report included) is unchanged.
+
+### Changed
+
+- Runtime dependencies: fastapi 0.142.2 to 0.143.0, numpy 2.5.3 to 2.5.4,
+  pydantic 2.13.5 to 2.14.1 (pydantic-core 2.46.5 to 2.50.1).
+- Development dependencies: hypothesis 6.168.4 to 6.169.0, ruff 0.16.10 to
+  0.17.0.
+- Docker image: `astral-sh/uv` 0.12.23 to 0.13.1, and a refreshed
+  `python:3.13-slim` digest. Dependabot no longer proposes a new Python minor
+  for the image, which follows `UV_PYTHON` in CI; the two move together.
+- CI: `astral-sh/setup-uv` 10.2.0 to 10.3.0.
+
 ## [1.1.1] - 2026-10-09
 
 A patch to the citation check of 1.1.0, whose README promised that figures in
@@ -92,6 +122,7 @@ First public release.
   attainable, H2 not met; the brier relevance model was removed and the
   default gate is `none` ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
 
+[1.1.2]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Rodrigo-Palma/edgar-rag/releases/tag/v1.0.0
