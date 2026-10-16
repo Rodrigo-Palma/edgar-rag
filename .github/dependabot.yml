@@ -24,3 +24,7 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "build"
+    ignore:
+      # The Python minor follows UV_PYTHON in ci.yml; bump both together.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
