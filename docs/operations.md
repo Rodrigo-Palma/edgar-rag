@@ -19,6 +19,13 @@ There is no authentication and no rate limit, so the service binds to
 `127.0.0.1` by default and logs a warning when `EDGAR_RAG_HOST` is not a
 loopback address.
 
+A request body over `8 KiB` gets `413` before it is read (a question is at
+most `500` characters), whether it declares its length or streams it, and a
+`422` names the failing fields without echoing their values. A `Host` outside
+`EDGAR_RAG_ALLOWED_HOSTS` (default `127.0.0.1,localhost,[::1]`) gets `400`,
+so a page that rebinds its domain to `127.0.0.1` cannot call the service;
+uvicorn holds at most `64` connections and answers `503` past them.
+
 ## Logs and health
 
 Every request writes one line of JSON to stderr: status, total and per-stage

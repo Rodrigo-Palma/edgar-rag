@@ -64,3 +64,13 @@ def no_network(monkeypatch):
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse_async)
     monkeypatch.setattr(socket.socket, "connect", refuse_socket)
     monkeypatch.setattr(socket.socket, "connect_ex", refuse_socket_ex)
+
+
+@pytest.fixture(autouse=True)
+def test_client_host(monkeypatch):
+    """Let ``TestClient``'s ``Host: testserver`` through the service's host check.
+
+    The service accepts only loopback names by default (DNS rebinding); a test
+    about that default clears this variable.
+    """
+    monkeypatch.setenv("EDGAR_RAG_ALLOWED_HOSTS", "testserver")

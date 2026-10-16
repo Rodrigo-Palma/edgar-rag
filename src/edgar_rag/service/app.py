@@ -20,6 +20,7 @@ import httpx
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import Response
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from edgar_rag import __version__
 from edgar_rag.answer import Answerer
@@ -45,10 +46,15 @@ from edgar_rag.service.failures import (
     ServiceBusy,
     report_failures,
 )
+from edgar_rag.service.limits import limit_requests
 from edgar_rag.service.schemas import AskRequest, AskResponse
 from edgar_rag.telemetry import StageTimer, log_request, write_to_stderr
 
 logger = logging.getLogger(__name__)
+
+MAX_CONNECTIONS = 64
+"""Connections uvicorn holds at once before answering 503. Generations are
+capped far lower; this caps the requests that only hold a socket and a body."""
 
 # The service answers from an index it loaded itself, and reports its filings
 # and fingerprint, so it needs the concrete index behind the answerer.
@@ -222,6 +228,9 @@ def create_app(
     app = FastAPI(title="edgar-rag", version=__version__, lifespan=lifespan)
     app.middleware("http")(log_each_request)
     report_failures(app)
+    limit_requests(app)
+    # Added last, so it runs first: a foreign Host is refused before the body is read.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(config.allowed_hosts))
     app.include_router(router)
     return app
 
@@ -359,4 +368,9 @@ def serve(
     """Run the service on the configured address, 127.0.0.1:8000 by default."""
     config = settings if settings is not None else ServiceSettings()
     write_to_stderr()
-    run(create_app(config, replay=replay), host=config.host, port=config.port)
+    run(
+        create_app(config, replay=replay),
+        host=config.host,
+        port=config.port,
+        limit_concurrency=MAX_CONNECTIONS,
+    )

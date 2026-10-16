@@ -6,6 +6,19 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- `POST /ask` read and parsed a body of any size before checking the
+  question's 500-character limit, so one request could make the service hold
+  gigabytes, and keep them; a page on another site could send it without a
+  preflight. A body over 8 KiB now gets `413` before it is read, declared or
+  streamed, and uvicorn holds at most 64 connections.
+- A `422` echoed each failing value, the whole body for one sent as text. It
+  now names the field, the message and the error type only.
+- The service answered any `Host`, so a page that rebinds its domain to
+  127.0.0.1 (DNS rebinding) could read `/health` and spend the GPU on `/ask`.
+  Only `127.0.0.1`, `localhost` and `[::1]` are accepted by default, others
+  get `400`; `EDGAR_RAG_ALLOWED_HOSTS` changes the list.
 ### Fixed
 
 - The v1.1 counts (0/117 answers and 0/22 withheld under arm A, 139

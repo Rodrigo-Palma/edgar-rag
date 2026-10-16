@@ -14,7 +14,7 @@ from edgar_rag.gate import AllOf, CosineGate, NoGate
 from edgar_rag.index import CorpusIndex, IndexFormatError
 from edgar_rag.models import ModelError
 from edgar_rag.period import PeriodGuard
-from edgar_rag.service.app import build_gate, create_app, serve
+from edgar_rag.service.app import MAX_CONNECTIONS, build_gate, create_app, serve
 from tests.fakes import (
     CIK,
     CITED_REPLY,
@@ -447,7 +447,7 @@ def test_the_service_is_served_on_the_local_machine_unless_configured_otherwise(
     telemetry.propagate = True
     telemetry.setLevel(logging.NOTSET)
 
-    assert calls == [{"host": "127.0.0.1", "port": 8000}]
+    assert calls == [{"host": "127.0.0.1", "port": 8000, "limit_concurrency": MAX_CONNECTIONS}]
 
 
 def test_the_withheld_figure_appears_nowhere_in_the_ask_response(index):

@@ -9,10 +9,10 @@ EDGAR and does not ask for a User-Agent. Every variable carries the
 import ipaddress
 import logging
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, HttpUrl, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from edgar_rag.edgar.user_agent import validate_user_agent
 
@@ -31,6 +31,11 @@ COSINE_R90 = 0.7329
 """The cosine score that admits 90% of the answerable golden questions of all
 24 companies, fitted after the headline run; ``make cosine-threshold`` prints
 it (ADR-0014)."""
+
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+"""The ``Host`` names the service answers by default. Any other is refused, so
+a page that rebinds its own domain to 127.0.0.1 cannot reach it (DNS
+rebinding)."""
 
 CI_TAPE = Path("eval/ci/tape")
 GOLDEN_SET = Path("eval/golden/v1.jsonl")
@@ -87,6 +92,15 @@ class ServiceSettings(_SharedSettings):
 
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
+    # Comma-separated in the environment: EDGAR_RAG_ALLOWED_HOSTS=a,b.
+    allowed_hosts: Annotated[tuple[str, ...], NoDecode] = LOOPBACK_HOSTS
+
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def _split_hosts(cls, hosts: object) -> object:
+        if isinstance(hosts, str):
+            return tuple(host.strip() for host in hosts.split(",") if host.strip())
+        return hosts
 
     @field_validator("host")
     @classmethod
