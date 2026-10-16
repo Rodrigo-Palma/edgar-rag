@@ -18,6 +18,10 @@ All notable changes to this project are recorded here. The format follows
 - The demo GIF was recorded before `make eval` also rebuilt the v1.1 report,
   so its fourth scene printed one report path where the command now prints
   two. It is re-recorded from the same tape.
+- ADR-0003 was titled and argued as a work-around for ollama/ollama#15609,
+  which its own Consequences already said reports only the non-ASCII case. It
+  is retitled for the tokenizer collapse measured here, and its Context calls
+  the issue possibly related, not the same.
 - The README's guarantee table said every number is copied from the
   evaluation reports. `scripts/check_readme_numbers.py` checks that each
   number appears in a report, not that it sits on the right row, arm or

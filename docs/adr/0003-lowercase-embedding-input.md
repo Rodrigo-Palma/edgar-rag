@@ -1,4 +1,4 @@
-# 0003. Lower-case embedding input to work around ollama#15609
+# 0003. Lower-case embedding input to work around a tokenizer collapse in Ollama
 
 - Status: Accepted (retroactive, decided in `7b0d9ae` on 2026-09-26); amended by [0004](0004-index-format-shard-per-filing.md)
 - Date: 2026-10-01
@@ -15,10 +15,11 @@ proper noun"](https://github.com/Rodrigo-Palma/edgar-rag/blob/7b0d9ae/README.md#
   identical; 287 distinct texts produced 119 distinct vectors.
 - In the Apple 10-K, 18.3% of words start with a capital, against 2.9% non-ASCII.
 
-This is [ollama/ollama#15609](https://github.com/ollama/ollama/issues/15609), a
+The capitalised case was measured here, not reported upstream. It is possibly
+related to, not the same as,
+[ollama/ollama#15609](https://github.com/ollama/ollama/issues/15609): a
 regression at v0.14.0 attributed to `BasicTokenizer` preprocessing lost in the
-HF to gguf conversion. The upstream issue frames it as non-ASCII; the
-measurements above show it is wider. A filing identifies what a passage is about
+HF to gguf conversion, which reports only non-ASCII text. A filing identifies what a passage is about
 mostly through proper nouns, so this discards the most informative tokens.
 
 ## Decision

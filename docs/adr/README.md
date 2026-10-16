@@ -10,7 +10,7 @@ fact with the evidence that led to it.
 |---|---|---|
 | [0001](0001-abstain-before-generating.md) | Abstain before generating; the relevance gate is a port | Accepted (retroactive) |
 | [0002](0002-exact-numpy-search-no-vector-database.md) | Exact NumPy search on disk, no vector database | Accepted (retroactive) |
-| [0003](0003-lowercase-embedding-input.md) | Lower-case embedding input to work around ollama#15609 | Accepted (retroactive) |
+| [0003](0003-lowercase-embedding-input.md) | Lower-case embedding input to work around a tokenizer collapse in Ollama | Accepted (retroactive) |
 | [0004](0004-index-format-shard-per-filing.md) | Index format 2: one shard per filing under a manifest that pins the embedder | Accepted (retroactive) |
 | [0005](0005-retrieval-scope-in-the-request.md) | The retrieval scope is explicit in the request | Accepted (retroactive) |
 | [0006](0006-closed-abstention-reasons.md) | Abstention reasons are a closed set, and the answer carries the gate score | Accepted (retroactive) |
