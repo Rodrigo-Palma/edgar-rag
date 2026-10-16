@@ -116,7 +116,7 @@ What follows, by the rules of section 9 written before the run:
 
 **What this does not show.** The 480 questions are generated from XBRL
 templates; the 40 questions written by hand are reported apart
-([Evaluation](#evaluation)) and never pooled. The model's refusal is
+([Evaluation](#evaluation)) and never pooled into the v1 metrics. The model's refusal is
 conservative as well as safe: arm A answered 48/180 = 26.7% [20.7%, 33.6%] of
 the answerable questions correctly. Nothing here generalises beyond 10-K
 filings of large US companies on this hardware and runtime.
@@ -256,7 +256,7 @@ the full tables are in the report.
   [0.820, 0.849] against brier 0.732 [0.713, 0.755].
 - **Risk against coverage, end to end:** AURC 0.372 for brier against 0.418
   for cosine (lower is better); exploratory and not part of the brier rule.
-- **Narratives written by hand, never pooled:** the correct decision under arm
+- **Narratives written by hand, never pooled into the v1 metrics:** the correct decision under arm
   A on 36/40 = 90.0% [76.9%, 96.0%]; the expected `Item` cited on 10/12 = 83.3%
   [55.2%, 95.3%] of the answered ones whose filing passes the split rule.
 - **Determinism:** the same prompt sent twice gave identical text in 30/30 =
@@ -266,8 +266,10 @@ the full tables are in the report.
 measured with the v1.0.0 check. Replayed over the same 139 generations with
 text, with no model ([protocol](docs/eval/protocol-v1.1.md), written first;
 [report](docs/eval/report-v1.1-citations.md), rebuilt by `make eval`), the
-v1.1 check changes no outcome: under arm A, 0/117 answers are withheld once
-reference numbers stop counting, 0/117 state their figures only in words, and
+v1.1 check changes no outcome. Unlike the v1 metrics, these counts pool both
+kinds of question, as the protocol does: arm A has 117 answers (101 golden and
+16 narrative) and 22 withheld (18 and 4). Of them, 0/117 answers are withheld
+once reference numbers stop counting, 0/117 state their figures only in words, and
 0/22 withheld answers would be answered. Zero here means at most 3.2% of
 answers (Wilson 95%), not none. The replay can see a wrong figure: moving one
 digit in each answer is withheld in 102/105. Its power on the defect itself
@@ -423,10 +425,10 @@ on are [ADR-0001](docs/adr/0001-abstain-before-generating.md),
   dollars`. A number printed without a scale word is rescaled when it has 3
   digits, zeros included, so `100 employees` still backs `$100 million`; a
   percentage under an `(in percent)` header is not read as a percentage, so
-  `42.5%` is withheld against it. In the v1 run the
-  weaker v1.0.0 check, which also counted the item label and note and page
-  numbers as support, decided no outcome differently: 0/117 under arm A, at
-  most 3.2% (Wilson 95%)
+  `42.5%` is withheld against it. In the v1 run the weaker v1.0.0 check,
+  which also counted the item label and note and page numbers as support,
+  decided no outcome differently: 0/117 under arm A, golden and narrative
+  pooled, at most 3.2% (Wilson 95%)
   ([report](docs/eval/report-v1.1-citations.md)).
 
 ## License

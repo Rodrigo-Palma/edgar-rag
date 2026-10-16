@@ -25,6 +25,19 @@ The arms are masks over the same generations
 the same cases share a row, and the counts of different rows overlap, so they
 are not independent measurements.
 
+## Population
+
+The cases with text are those of protocol section 4, and every count below pools both kinds: the questions generated from XBRL templates (golden) and the questions written by hand (narrative). report-v1.md reports the narratives apart; here they are not split, because the protocol does not split them.
+
+| arm | answered | withheld (`no_valid_citation`, `unsupported_claim`) |
+|---|---|---|
+| A | 117 = 101 golden + 16 narrative | 22 = 18 golden + 4 narrative |
+| B | 97 = 83 golden + 14 narrative | 19 = 15 golden + 4 narrative |
+| C | 99 = 85 golden + 14 narrative | 21 = 17 golden + 4 narrative |
+| D | 117 = 101 golden + 16 narrative | 22 = 18 golden + 4 narrative |
+| E | 99 = 85 golden + 14 narrative | 21 = 17 golden + 4 narrative |
+| F | 97 = 83 golden + 14 narrative | 19 = 15 golden + 4 narrative |
+
 ## M1: reference numbers as support
 
 Answered cases the v1.0.0 rules withhold as `unsupported_claim` once the item label is not read and `Note`, `page`, `Item`, `Exhibit` and `Section` numbers are removed from the cited passages.

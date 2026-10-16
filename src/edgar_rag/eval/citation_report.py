@@ -50,6 +50,7 @@ class CaseResult:
     words: WordsProbe | None = None
     without_percent_rule: Judged | None = None
     without_rescale_floor: Judged | None = None
+    kind: str = "golden"
 
 
 def case_results(cases: Sequence[Replayable]) -> tuple[CaseResult, ...]:
@@ -69,6 +70,7 @@ def _result(case: Replayable) -> CaseResult:
         words=words_probe(case) if answered else None,
         without_percent_rule=judge(case.text, case.passages, PERCENT_RULE_OFF),
         without_rescale_floor=judge(case.text, case.passages, RESCALE_FLOOR_OFF),
+        kind=case.record.kind,
     )
 
 
@@ -108,6 +110,10 @@ class ArmCounts:
     m2: Count
     lost: Count
     gained: Count
+    answered_golden: int = 0
+    answered_narrative: int = 0
+    withheld_golden: int = 0
+    withheld_narrative: int = 0
 
 
 def arm_counts(
@@ -138,6 +144,10 @@ def _arm_row(arm: str, admitted: Sequence[CaseResult]) -> ArmCounts:
         m2=Count(sum(r.words_only for r in answered), n),
         lost=Count(sum(r.current.outcome != "answered" for r in answered), n),
         gained=Count(sum(r.current.outcome == "answered" for r in withheld), len(withheld)),
+        answered_golden=sum(r.kind == "golden" for r in answered),
+        answered_narrative=sum(r.kind == "narrative" for r in answered),
+        withheld_golden=sum(r.kind == "golden" for r in withheld),
+        withheld_narrative=sum(r.kind == "narrative" for r in withheld),
     )
 
 
@@ -167,6 +177,7 @@ def render(
     """The report, deterministic: the same inputs give the same bytes."""
     parts = [
         _header(results, pins),
+        _population(rows),
         _table_m1(rows),
         _table_m2(rows),
         _table_m3(rows),
@@ -209,6 +220,28 @@ The arms are masks over the same generations
 the same cases share a row, and the counts of different rows overlap, so they
 are not independent measurements.
 """
+
+
+def _by_kind(golden: int, narrative: int) -> str:
+    return f"{golden + narrative} = {golden} golden + {narrative} narrative"
+
+
+def _population(rows: Sequence[ArmCounts]) -> str:
+    lines = [
+        f"| {r.arm} | {_by_kind(r.answered_golden, r.answered_narrative)} "
+        f"| {_by_kind(r.withheld_golden, r.withheld_narrative)} |"
+        for r in rows
+    ]
+    return _table(
+        "Population",
+        "The cases with text are those of protocol section 4, and every count below "
+        "pools both kinds: the questions generated from XBRL templates (golden) and "
+        "the questions written by hand (narrative). report-v1.md reports the "
+        "narratives apart; here they are not split, because the protocol does not "
+        "split them.",
+        "| arm | answered | withheld (`no_valid_citation`, `unsupported_claim`) |\n|---|---|---|",
+        lines,
+    )
 
 
 def _table(title: str, intro: str, header: str, lines: Sequence[str]) -> str:

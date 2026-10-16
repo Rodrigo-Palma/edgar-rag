@@ -172,6 +172,26 @@ def test_the_report_counts_every_measure_per_arm_and_lists_the_cases_that_change
     assert report.count("exploratory") >= 4
 
 
+def test_the_report_states_how_many_of_each_kind_every_arm_pools():
+    golden = _case("g1", "R&D was $31,370 million [1].")
+    withheld = _case("g2", "R&D was $31,370 million.", outcome="no_valid_citation")
+    narrative = _case("n1", "R&D was $31,370 million [1].", kind="narrative")
+    cases = (golden, withheld, narrative)
+    results = case_results(reconstruct(cases, _tape(*cases)))
+    masks = {"A": np.array([True, True, True]), "B": np.array([True, True, False])}
+
+    rows = arm_counts(results, cases, masks)
+    report = render(rows, results, cases, masks, Pins("a" * 64, "b" * 64, "protocol-v1.1.md"))
+
+    a, b = rows
+    assert (a.answered_golden, a.answered_narrative) == (1, 1)
+    assert (a.withheld_golden, a.withheld_narrative) == (1, 0)
+    assert (b.answered_golden, b.answered_narrative) == (1, 0)
+    assert "| A | 2 = 1 golden + 1 narrative | 1 = 1 golden + 0 narrative |" in report
+    assert "| B | 1 = 1 golden + 0 narrative | 1 = 1 golden + 0 narrative |" in report
+    assert "pools both kinds" in report
+
+
 def _script() -> ModuleType:
     path = ROOT / "scripts" / "measure_citation_support.py"
     spec = importlib.util.spec_from_file_location("measure_citation_support", path)

@@ -8,6 +8,13 @@ All notable changes to this project are recorded here. The format follows
 
 ### Fixed
 
+- The v1.1 counts (0/117 answers and 0/22 withheld under arm A, 139
+  generations with text) pool the golden and the hand-written narrative
+  questions, as protocol-v1.1 does, while the README said the narratives are
+  never pooled and report-v1 gives 101 answered under arm A. The v1.1 report
+  now opens with a population table by kind (117 = 101 golden + 16
+  narrative), and the README says the narratives stay out of the v1 metrics
+  only.
 - The README's guarantee table said every number is copied from the
   evaluation reports. `scripts/check_readme_numbers.py` checks that each
   number appears in a report, not that it sits on the right row, arm or
