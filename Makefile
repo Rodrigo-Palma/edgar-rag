@@ -34,7 +34,7 @@ test: ## Tests with branch coverage, failing under 85%
 
 README_PAGES := README.md docs/architecture.md docs/operations.md
 
-readme: ## Every number in the README and its docs pages is copied from docs/eval/ (no model, no network)
+readme: ## Every number in the README and its docs pages appears in docs/eval/ (no model, no network)
 	$(UV_RUN) python scripts/check_readme_numbers.py $(README_PAGES)
 
 audit: ## Known vulnerabilities in the locked dependencies (needs network)

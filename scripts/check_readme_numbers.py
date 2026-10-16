@@ -23,6 +23,10 @@ against the service), inline code (settings, model names, paths), HTML tags,
 link targets, issue and pull request references (``#4``), ADR numbers
 (``ADR-0014``) and the form name ``10-K``.
 
+The check matches values, not places: it catches a number no report prints,
+not a reported number put on the wrong row, arm or column. Two numbers swapped
+between arms still pass.
+
 Exit status 1, with each missing number and its line, when one is not found.
 """
 

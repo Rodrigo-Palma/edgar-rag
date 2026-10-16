@@ -4,6 +4,16 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The README's guarantee table said every number is copied from the
+  evaluation reports. `scripts/check_readme_numbers.py` checks that each
+  number appears in a report, not that it sits on the right row, arm or
+  column: two numbers swapped between arms pass. The row, the `make readme`
+  help and the checker's docstring now say what is checked.
+
 ## [1.1.2] - 2026-10-16
 
 A patch to the figure-in-words parser of 1.1.1, and dependency bumps. No
@@ -122,6 +132,7 @@ First public release.
   attainable, H2 not met; the brier relevance model was removed and the
   default gate is `none` ([ADR-0014](docs/adr/0014-remove-brier-default-to-no-gate.md)).
 
+[Unreleased]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.1.2...HEAD
 [1.1.2]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Rodrigo-Palma/edgar-rag/compare/v1.0.0...v1.1.0

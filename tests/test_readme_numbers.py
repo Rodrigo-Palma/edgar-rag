@@ -1,4 +1,4 @@
-"""Every number the README states is copied from the evaluation reports.
+"""Every number the README states appears in the evaluation reports.
 
 The checker lives in ``scripts/check_readme_numbers.py`` so ``make check``
 can run it on its own; these tests hold its rules and run it on the README.
